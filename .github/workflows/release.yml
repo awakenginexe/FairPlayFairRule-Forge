@@ -11,7 +11,7 @@ permissions:
 jobs:
   build:
     name: Build Minecraft ${{ matrix.minecraft }}
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     strategy:
       fail-fast: false
       matrix:
@@ -45,18 +45,17 @@ jobs:
           cache: gradle
 
       - name: Build release JAR
-        shell: bash
+        shell: pwsh
         run: |
-          MOD_VERSION="${GITHUB_REF_NAME#v}"
-          if [[ -z "$MOD_VERSION" ]]; then
+          $modVersion = $env:GITHUB_REF_NAME -replace '^v'
+          if ([string]::IsNullOrWhiteSpace($modVersion)) {
             echo "Release tags must have a version after v (for example: v1.0.0)."
             exit 1
-          fi
+          }
 
-          chmod +x gradlew
-          ./gradlew clean build --no-daemon \
-            "-Ptarget=${{ matrix.minecraft }}" \
-            "-Pmod_version=$MOD_VERSION"
+          .\gradlew.bat clean build --no-daemon `
+            "-Ptarget=${{ matrix.minecraft }}" `
+            "-Pmod_version=$modVersion"
 
       - name: Upload Minecraft ${{ matrix.minecraft }} JAR
         uses: actions/upload-artifact@v4
