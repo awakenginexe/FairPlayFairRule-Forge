@@ -1,5 +1,6 @@
 package com.example.fairplayfairrule.client;
 
+import com.example.fairplayfairrule.compat.TextComponents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.ConfirmScreen;
 import net.minecraft.client.gui.screens.TitleScreen;
@@ -16,9 +17,9 @@ import net.minecraftforge.api.distmarker.OnlyIn;
 @OnlyIn(Dist.CLIENT)
 public class ConsentScreen extends ConfirmScreen {
 
-    private static final Component TITLE = Component.literal("FairPlayFairRule - User Consent Required");
+    private static final Component TITLE = TextComponents.literal("FairPlayFairRule - User Consent Required");
 
-    private static final Component MESSAGE = Component.literal(
+    private static final Component MESSAGE = TextComponents.literal(
             "This server requires the FairPlayFairRule mod for anti-cheat purposes.\n\n" +
             "By accepting, you acknowledge that:\n" +
             "• Your complete mod list will be collected and sent to the server administrator\n" +
@@ -33,8 +34,8 @@ public class ConsentScreen extends ConfirmScreen {
                 ConsentScreen::onConfirm, // Accept callback
                 TITLE,
                 MESSAGE,
-                Component.literal("Accept & Continue").withStyle(style -> style.withColor(0x00FF00)), // Green
-                Component.literal("Decline & Quit").withStyle(style -> style.withColor(0xFF0000))  // Red
+                TextComponents.literal("Accept & Continue").withStyle(style -> style.withColor(0x00FF00)), // Green
+                TextComponents.literal("Decline & Quit").withStyle(style -> style.withColor(0xFF0000))  // Red
         );
     }
 

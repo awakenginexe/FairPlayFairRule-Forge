@@ -47,10 +47,7 @@ public class ClientDataService {
                 FairPlayFairRule.LOGGER.warn("Resource pack repository is null!");
             }
 
-            // Send data to server using Forge SimpleChannel
-            PacketHandler.CHANNEL.sendToServer(
-                    new PacketHandler.ClientInfoPacket(modList, resourcePackList)
-            );
+            ClientPacketSender.sendToServer(new PacketHandler.ClientInfoPacket(modList, resourcePackList));
 
             FairPlayFairRule.LOGGER.info("Client data sent to server successfully");
 

@@ -1,6 +1,7 @@
 package com.example.fairplayfairrule.server;
 
 import com.example.fairplayfairrule.FairPlayFairRule;
+import com.example.fairplayfairrule.compat.TextComponents;
 import com.example.fairplayfairrule.config.Config;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
@@ -53,7 +54,7 @@ public class ServerValidationService {
                     FairPlayFairRule.LOGGER.warn("Player {} has banned mod: {}", player.getName().getString(), modId);
 
                     // Kick the player immediately
-                    player.connection.disconnect(Component.literal(
+                    player.connection.disconnect(TextComponents.literal(
                             "\u00A7c\u00A7lYou have been banned!\n\n" +
                             "\u00A77Reason: \u00A7fUsing prohibited mod: \u00A7e" + modId + "\n\n" +
                             "\u00A77This has been reported to the server administrators."

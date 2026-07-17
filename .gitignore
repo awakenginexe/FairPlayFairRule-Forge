@@ -13,7 +13,17 @@ out/
 # Gradle
 .gradle/
 build/
+releases/
 gradle-app.setting
+
+# Local documentation, planning, and specification notes
+docs/
+plan/
+spec/
+PLAN.md
+SPEC.md
+*.plan.md
+*.spec.md
 
 # OS-specific
 .DS_Store

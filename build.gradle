@@ -4,17 +4,64 @@ plugins {
     id 'net.minecraftforge.gradle' version '6.0.+'
 }
 
+def targetId = providers.gradleProperty('target').getOrElse('1.20.1')
+def targets = [
+        '1.18.2': [forge: '40.3.12', java: 17, transport: 'forge40'],
+        '1.19.2': [forge: '43.5.2',  java: 17, transport: 'legacy'],
+        '1.19.4': [forge: '45.4.3',  java: 17, transport: 'legacy'],
+        '1.20.1': [forge: '47.4.10', java: 17, transport: 'legacy'],
+        '1.20.2': [forge: '48.1.0',  java: 17, transport: 'forge48'],
+        '1.20.4': [forge: '49.2.8',  java: 17, transport: 'forge48'],
+        '1.20.6': [forge: '50.2.9',  java: 21, transport: 'payload'],
+        '1.21.1': [forge: '52.1.15', java: 21, transport: 'payload']
+]
+
+if (!targets.containsKey(targetId)) {
+    throw new GradleException("Unknown Minecraft target '${targetId}'. Choose one of: ${targets.keySet().join(', ')}")
+}
+
+def target = targets[targetId]
+def minecraftVersion = targetId
+def minecraftVersionRange = "[${minecraftVersion},${minecraftVersion.tokenize('.').with { "${it[0]}.${it[1]}.${(it[2] as int) + 1}" }})"
+def forgeVersion = target.forge
+def forgeMajor = forgeVersion.tokenize('.')[0]
+
 version = project.mod_version
 group = project.mod_group_id
 
 base {
-    archivesName = project.mod_id
+    // Every Minecraft release gets its own tested artifact. Do not distribute one
+    // JAR with a broad Minecraft version range unless it was built and tested for
+    // every version in that range.
+    archivesName = "${project.mod_id}-forge-${minecraftVersion}"
 }
 
-java.toolchain.languageVersion = JavaLanguageVersion.of(17)
+java.toolchain.languageVersion = JavaLanguageVersion.of(target.java as int)
+
+sourceSets {
+    main {
+        java {
+            // Every target supplies exactly one transport implementation with the
+            // same public packet API. The remaining game logic is shared.
+            if (target.transport == 'forge40') {
+                srcDir 'src/compat/forge40/java'
+            } else {
+                srcDir 'src/compat/modern/java'
+            }
+
+            if (target.transport == 'legacy') {
+                srcDir 'src/compat/legacy/java'
+            } else if (target.transport == 'forge48') {
+                srcDir 'src/compat/forge48/java'
+            } else if (target.transport == 'payload') {
+                srcDir 'src/compat/payload/java'
+            }
+        }
+    }
+}
 
 minecraft {
-    mappings channel: 'official', version: project.minecraft_version
+    mappings channel: 'official', version: minecraftVersion
 
     runs {
         client {
@@ -45,16 +92,16 @@ repositories {
 }
 
 dependencies {
-    minecraft "net.minecraftforge:forge:${project.minecraft_version}-${project.forge_version}"
+    minecraft "net.minecraftforge:forge:${minecraftVersion}-${forgeVersion}"
 }
 
 tasks.withType(ProcessResources).configureEach {
     var replaceProperties = [
-            minecraft_version   : minecraft_version,
-            minecraft_version_range: minecraft_version_range,
-            forge_version       : forge_version,
-            forge_version_range : forge_version_range,
-            loader_version_range: loader_version_range,
+            minecraft_version   : minecraftVersion,
+            minecraft_version_range: minecraftVersionRange,
+            forge_version       : forgeVersion,
+            forge_version_range : "[${forgeVersion},${(forgeMajor as int) + 1})",
+            loader_version_range: "[${forgeMajor},${(forgeMajor as int) + 1})",
             mod_id              : mod_id,
             mod_name            : mod_name,
             mod_license         : mod_license,
@@ -71,4 +118,12 @@ tasks.withType(ProcessResources).configureEach {
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
+}
+
+tasks.register('showTarget') {
+    group = 'help'
+    description = 'Displays the selected Minecraft/Forge build target.'
+    doLast {
+        logger.lifecycle("FairPlayFairRule target: Minecraft ${minecraftVersion}, Forge ${forgeVersion}, Java ${target.java}")
+    }
 }

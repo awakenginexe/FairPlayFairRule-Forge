@@ -1,0 +1,99 @@
+name: Release Forge builds
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Minecraft ${{ matrix.minecraft }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - minecraft: "1.18.2"
+            java: "17"
+          - minecraft: "1.19.2"
+            java: "17"
+          - minecraft: "1.19.4"
+            java: "17"
+          - minecraft: "1.20.1"
+            java: "17"
+          - minecraft: "1.20.2"
+            java: "17"
+          - minecraft: "1.20.4"
+            java: "17"
+          - minecraft: "1.20.6"
+            java: "21"
+          - minecraft: "1.21.1"
+            java: "21"
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Java ${{ matrix.java }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+          cache: gradle
+
+      - name: Build release JAR
+        shell: bash
+        run: |
+          MOD_VERSION="${GITHUB_REF_NAME#v}"
+          if [[ -z "$MOD_VERSION" ]]; then
+            echo "Release tags must have a version after v (for example: v1.0.0)."
+            exit 1
+          fi
+
+          chmod +x gradlew
+          ./gradlew clean build --no-daemon \
+            "-Ptarget=${{ matrix.minecraft }}" \
+            "-Pmod_version=$MOD_VERSION"
+
+      - name: Upload Minecraft ${{ matrix.minecraft }} JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: fairplayfairrule-forge-${{ matrix.minecraft }}
+          path: build/libs/*.jar
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download release JARs
+        uses: actions/download-artifact@v4
+        with:
+          path: release
+          pattern: fairplayfairrule-forge-*
+          merge-multiple: true
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          shopt -s nullglob
+          jars=(release/*.jar)
+          if (( ${#jars[@]} != 8 )); then
+            echo "Expected 8 release JARs but found ${#jars[@]}."
+            exit 1
+          fi
+
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "${jars[@]}" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "${jars[@]}" \
+              --title "$GITHUB_REF_NAME" \
+              --generate-notes
+          fi

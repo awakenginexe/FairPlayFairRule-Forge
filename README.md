@@ -1,6 +1,26 @@
 # FairPlayFairRule
 
-A comprehensive client-side verification tool for Minecraft 1.20.1 servers using Forge.
+A client/server verification tool with one shared Forge codebase for Minecraft 1.18.2 through 1.21.1.
+
+## Supported versions
+
+The project compiles a correctly-labelled JAR for each tested Minecraft target:
+
+| Minecraft | Forge | Java | Status |
+| --- | --- | --- | --- |
+| 1.18.2 | 40.3.12 | 17 | Compiles |
+| 1.19.2 | 43.5.2 | 17 | Compiles |
+| 1.19.4 | 45.4.3 | 17 | Compiles |
+| 1.20.1 | 47.4.10 | 17 | Compiles |
+| 1.20.2 | 48.1.0 | 17 | Compiles |
+| 1.20.4 | 49.2.8 | 17 | Compiles |
+| 1.20.6 | 50.2.9 | 21 | Compiles |
+| 1.21.1 | 52.1.15 | 21 | Compiles |
+
+Minecraft's mod APIs change across releases. The build chooses a matching transport,
+client-event, and text-component adapter while retaining the verification, validation,
+and webhook logic in one shared source tree. Releases remain separate target-labelled
+JARs, so Forge never tries to load classes intended for a different Minecraft release.
 
 ## Overview
 
@@ -66,13 +86,15 @@ The server configuration file (`config/fairplayfairrule-common.toml`) contains:
   - `com.example.fairplayfairrule` - Main mod class
   - `com.example.fairplayfairrule.client` - Client-side handlers
   - `com.example.fairplayfairrule.server` - Server-side validation
-  - `com.example.fairplayfairrule.network` - SimpleChannel-based networking
+  - `src/compat` - Forge API adapters selected by the build target
   - `com.example.fairplayfairrule.config` - Configuration system
 
 ### Networking
-- Uses Forge 1.20.1 SimpleChannel networking
-- Custom `ClientInfoPacket` with manual encode/decode via `FriendlyByteBuf`
-- Client-to-server packet direction
+- Forge 40 transport for Minecraft 1.18.2
+- Forge 43-47 legacy SimpleChannel transport for 1.19.2 through 1.20.1
+- Forge 48-49 channel transport for 1.20.2 and 1.20.4
+- Forge 50-52 payload-aware channel transport for 1.20.6 and 1.21.1
+- A bounded `ClientInfoPacket` codec with manual `FriendlyByteBuf` encoding
 
 ### External Services
 - **Hastebin** (`https://hst.sh/`) for uploading large mod/pack lists
@@ -80,17 +102,31 @@ The server configuration file (`config/fairplayfairrule-common.toml`) contains:
 
 ## Building from Source
 
-```bash
-./gradlew build
+Build the default 1.20.1 target:
+
+```powershell
+.\gradlew.bat clean build
+```
+
+Build another target:
+
+```powershell
+.\gradlew.bat clean build -Ptarget=1.18.2
+```
+
+Build every target and collect the JARs in `releases/`:
+
+```powershell
+.\scripts\build-all.ps1
 ```
 
 The compiled JAR will be in `build/libs/`.
 
 ## Requirements
 
-- Minecraft 1.20.1
-- Forge 47.2.0+
-- Java 17+
+- Java 17 for targets through Minecraft 1.20.4
+- Java 21 for Minecraft 1.20.6 and 1.21.1
+- The exact Forge version in the support table for the selected target
 
 ## License
 
