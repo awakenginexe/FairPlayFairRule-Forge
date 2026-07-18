@@ -1,6 +1,6 @@
-# FairPlayFairRule
+# FairPlayFairRule — Play Fair Together (Forge)
 
-A client/server verification tool with one shared Forge codebase for Minecraft 1.18.2 through 1.21.1.
+FairPlayFairRule (FPFR) is a lightweight, privacy‑respecting companion for fair multiplayer. It verifies consent, collects a clear manifest of client mods and resource packs, and posts human‑readable join summaries to Discord — with full lists via paste links. Built for large modpacks and busy servers.
 
 ## Supported versions
 
