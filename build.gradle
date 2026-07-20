@@ -57,6 +57,14 @@ sourceSets {
             } else if (target.transport == 'payload') {
                 srcDir 'src/compat/payload/java'
             }
+
+            // CommandSourceStack.sendSuccess changed from a Component to a
+            // Supplier<Component> after Minecraft 1.19.4.
+            if (['1.18.2', '1.19.2', '1.19.4'].contains(targetId)) {
+                srcDir 'src/compat/command-legacy/java'
+            } else {
+                srcDir 'src/compat/command-modern/java'
+            }
         }
     }
 }

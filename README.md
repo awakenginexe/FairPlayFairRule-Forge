@@ -69,15 +69,19 @@ FairPlayFairRule is a mod that must be installed on both the client and server t
 2. Start the server to generate the config file
 3. Edit `config/fairplayfairrule-common.toml`:
    ```toml
-   [General Settings]
+   ["General Settings"]
    webhookUrl = "YOUR_DISCORD_WEBHOOK_URL_HERE"
    bannedModIds = ["examplehackmod", "examplecheatmod"]
    requiredPackHashes = ["0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"]
-   globalApprovedPackHashes = []
-   playerApprovedPackHashes = ["11111111-1111-1111-1111-111111111111=abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd"]
-   serverDownloadedPackHashes = []
+   globalApprovedPackHashes = ["1111111111111111111111111111111111111111111111111111111111111111"]
+   playerApprovedPackHashes = [
+       "550e8400-e29b-41d4-a716-446655440000=2222222222222222222222222222222222222222222222222222222222222222",
+       "550e8400-e29b-41d4-a716-446655440000=3333333333333333333333333333333333333333333333333333333333333333"
+   ]
+   serverDownloadedPackHashes = ["4444444444444444444444444444444444444444444444444444444444444444"]
    ```
-4. Restart the server
+4. Save the file. Forge reloads the policy automatically; a full server restart is not required.
+5. Have already-connected players reconnect so they receive a baseline under the new policy.
 
 ### Client Setup
 1. Place the mod JAR in the client's `mods/` folder
@@ -96,6 +100,36 @@ The server configuration file (`config/fairplayfairrule-common.toml`) contains:
 - **serverDownloadedPackHashes**: Expected hashes for packs downloaded from the current server
 
 All hashes are normalized to lowercase before comparison and must be exactly 64 hexadecimal characters. Built-in Minecraft/Forge resources do not require allowlist entries. User directory packs are rejected; compress them as ZIP files before approval.
+
+### Administrator Resource-Pack Hash Workflow
+
+The server cannot infer which custom ZIPs an administrator intends to approve. Hash the exact ZIP bytes that will be distributed to players; do not hash an extracted directory or rebuild the ZIP after approval.
+
+1. Create the dedicated input directory if it does not exist:
+
+   ```text
+   config/fairplayfairrule/pack-hash-input/
+   ```
+
+2. Copy the exact distributed resource-pack ZIP directly into that directory. Subdirectories and symbolic links are not accepted.
+3. From the server console, or as an operator with permission level 4, run:
+
+   ```text
+   /fpfr packhash "Faithful 32x.zip"
+   ```
+
+   To generate a per-player entry at the same time, supply the player's canonical UUID:
+
+   ```text
+   /fpfr packhash "Private Pack.zip" 550e8400-e29b-41d4-a716-446655440000
+   ```
+
+4. The command prints the file name, byte size, lowercase raw SHA-256, and a copy-ready quoted hash-list entry. With a UUID it also prints a copy-ready `UUID=SHA256` entry.
+5. Paste the quoted hash into `requiredPackHashes`, `globalApprovedPackHashes`, or `serverDownloadedPackHashes`. Paste the `UUID=SHA256` value into `playerApprovedPackHashes`.
+6. Save `config/fairplayfairrule-common.toml` and check the server log for `Loaded resource-pack integrity policy with 0 configuration error(s)`.
+7. Have affected connected players reconnect. Saving reloads the allowlist automatically, but an existing player's validated session baseline remains locked until reconnect.
+
+The command never edits the TOML file, scans the directory, accepts uploads, or accepts an arbitrary filesystem path. Hashing runs on one bounded background worker and that worker is stopped with the server lifecycle.
 
 ## Technical Details
 

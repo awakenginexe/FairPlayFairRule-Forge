@@ -36,20 +36,33 @@ public final class ResourcePackHashService {
     }
 
     public synchronized HashResult hash(Path input) throws IOException {
+        return hashInternal(input, true);
+    }
+
+    /** Computes a fresh digest without consulting or updating the metadata cache. */
+    public synchronized HashResult hashUncached(Path input) throws IOException {
+        return hashInternal(input, false);
+    }
+
+    private HashResult hashInternal(Path input, boolean useCache) throws IOException {
         Path path = input.toAbsolutePath().normalize();
         for (int attempt = 0; attempt < 2; attempt++) {
             BasicFileAttributes before = readAttributes(path);
-            CacheEntry cached = cache.get(path);
-            if (cached != null && cached.matches(before)) {
-                return new HashResult(cached.sha256, before.size(),
-                        before.lastModifiedTime().toMillis(), true);
+            if (useCache) {
+                CacheEntry cached = cache.get(path);
+                if (cached != null && cached.matches(before)) {
+                    return new HashResult(cached.sha256, before.size(),
+                            before.lastModifiedTime().toMillis(), true);
+                }
             }
 
             String sha256 = computer.hash(path);
             BasicFileAttributes after = readAttributes(path);
             if (sameMetadata(before, after)) {
-                cache.put(path, new CacheEntry(after.size(),
-                        after.lastModifiedTime(), sha256));
+                if (useCache) {
+                    cache.put(path, new CacheEntry(after.size(),
+                            after.lastModifiedTime(), sha256));
+                }
                 return new HashResult(sha256, after.size(),
                         after.lastModifiedTime().toMillis(), false);
             }
