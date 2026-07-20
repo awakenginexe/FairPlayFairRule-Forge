@@ -16,6 +16,9 @@ build/
 releases/
 gradle-app.setting
 
+# Isolated feature worktrees
+.worktrees/
+
 # Local documentation, planning, and specification notes
 docs/
 plan/
