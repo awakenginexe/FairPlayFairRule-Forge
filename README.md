@@ -53,9 +53,10 @@ FairPlayFairRule is a mod that must be installed on both the client and server t
 
 ### 🔔 Discord Notifications
 - **Player Join Notification**: Basic join alert with player info
-- **Player Manifest**: Detailed mod and resource pack report
+- **Player Manifest**: Detailed mod and resource pack report attached directly as UTF-8 text
 - **Ban Notification**: High-priority alert when banned mods are detected
-- Full lists uploaded to Hastebin for easy viewing
+- Manifest attachments are split on line boundaries at 9 MiB, up to five ordered parts and 45 MiB total
+- Optional Hastebin mirroring is disabled by default and never replaces or blocks Discord attachment delivery
 
 ### 🔄 Resource Pack Monitoring
 - Detects resource pack changes in real-time
@@ -71,6 +72,7 @@ FairPlayFairRule is a mod that must be installed on both the client and server t
    ```toml
    ["General Settings"]
    webhookUrl = "YOUR_DISCORD_WEBHOOK_URL_HERE"
+   hastebinMirrorEnabled = false
    bannedModIds = ["examplehackmod", "examplecheatmod"]
    requiredPackHashes = ["0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"]
    globalApprovedPackHashes = ["1111111111111111111111111111111111111111111111111111111111111111"]
@@ -93,6 +95,7 @@ FairPlayFairRule is a mod that must be installed on both the client and server t
 The server configuration file (`config/fairplayfairrule-common.toml`) contains:
 
 - **webhookUrl**: Discord webhook URL for notifications (leave empty to disable)
+- **hastebinMirrorEnabled**: Optional best-effort Hastebin mirror; defaults to `false`
 - **bannedModIds**: List of mod IDs that trigger automatic bans (case-insensitive)
 - **requiredPackHashes**: Raw SHA-256 hashes every player must have active
 - **globalApprovedPackHashes**: Optional ZIP hashes allowed for every player
@@ -149,8 +152,10 @@ The command never edits the TOML file, scans the directory, accepts uploads, or 
 - A strict protocol-2 `ClientInfoPacket` codec with bounded structured resource-pack manifests
 
 ### External Services
-- **Hastebin** (`https://hst.sh/`) for uploading large mod/pack lists
-- **Discord Webhooks** for real-time notifications
+- **Discord Webhooks** for real-time summary notifications and complete UTF-8 manifest attachments
+- **Hastebin** (`https://hst.sh/`) as an optional best-effort mirror when `hastebinMirrorEnabled = true`
+
+Discord delivery uses safe UUID/timestamp filenames and suppresses all allowed mentions. Manifests up to 9 MiB use one `.txt` attachment. Larger manifests are split at existing UTF-8 line boundaries into numbered parts of at most 9 MiB each; concatenating the parts in order reconstructs the original bytes. At most five parts and 45 MiB total are accepted. Beyond that bound, Discord receives the normal summary with a clear attachment error and no manifest or mirror upload is attempted.
 
 ## Building from Source
 

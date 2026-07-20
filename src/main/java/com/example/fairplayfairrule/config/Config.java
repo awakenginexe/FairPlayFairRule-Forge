@@ -19,6 +19,7 @@ public class Config {
 
     // Discord Webhook URL for sending notifications
     public static final ForgeConfigSpec.ConfigValue<String> WEBHOOK_URL;
+    public static final ForgeConfigSpec.BooleanValue HASTEBIN_MIRROR_ENABLED;
 
     // List of banned mod IDs that will trigger auto-ban
     public static final ForgeConfigSpec.ConfigValue<List<? extends String>> BANNED_MOD_IDS;
@@ -39,6 +40,11 @@ public class Config {
                 .comment("Discord Webhook URL for sending player notifications.",
                         "Leave empty to disable webhook notifications.")
                 .define("webhookUrl", "");
+
+        HASTEBIN_MIRROR_ENABLED = BUILDER
+                .comment("Optionally mirror manifest text to Hastebin on a best-effort basis.",
+                        "Discord attachments remain authoritative and are always attempted directly.")
+                .define("hastebinMirrorEnabled", false);
 
         BANNED_MOD_IDS = BUILDER
                 .comment("List of mod IDs that will trigger an automatic ban.",
