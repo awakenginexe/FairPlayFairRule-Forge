@@ -177,6 +177,20 @@ class ResourcePackPolicyServiceTest {
         assertTrue(oversized.message().contains("oversized"));
     }
 
+    @Test
+    void structuralValidationDoesNotApplyAllowlistOrEstablishPolicyState() {
+        ResourcePackPolicyService policy = policy(List.of(REQUIRED), List.of(), List.of(), List.of());
+
+        ValidationResult structurallyValid = policy.validateManifestStructure(
+                List.of(zip("Unapproved but well formed.zip", UNKNOWN)));
+        ValidationResult structurallyInvalid = policy.validateManifestStructure(List.of(
+                new ResourcePackManifestEntry("Broken", "", 0, ResourcePackType.UNRESOLVED)));
+
+        assertTrue(structurallyValid.isValid());
+        assertEquals(java.util.Set.of(UNKNOWN), structurallyValid.activeHashes());
+        assertEquals(ValidationFailureCode.UNRESOLVED_PACK, structurallyInvalid.code());
+    }
+
     private static ResourcePackPolicyService policy(List<String> required,
                                                     List<String> global,
                                                     List<String> players,

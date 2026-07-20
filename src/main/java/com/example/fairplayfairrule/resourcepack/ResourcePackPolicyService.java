@@ -88,6 +88,11 @@ public final class ResourcePackPolicyService {
         return inspection.result;
     }
 
+    /** Validates packet semantics without applying allowlists or mutating session state. */
+    public ValidationResult validateManifestStructure(List<ResourcePackManifestEntry> manifest) {
+        return inspectManifest(manifest).result;
+    }
+
     public ValidationResult validateRuntime(PlayerPackSessionStore.SessionBaseline baseline,
                                             List<ResourcePackManifestEntry> manifest) {
         ManifestInspection inspection = inspectManifest(manifest);

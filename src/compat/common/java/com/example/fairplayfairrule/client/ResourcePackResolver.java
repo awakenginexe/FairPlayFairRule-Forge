@@ -7,6 +7,7 @@ import net.minecraft.server.packs.repository.Pack;
 import net.minecraft.server.packs.repository.PackSource;
 
 import java.io.File;
+import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.nio.file.Files;
@@ -50,11 +51,20 @@ public final class ResourcePackResolver {
             if (!candidate.startsWith(root) || candidate.equals(root)) {
                 return new ResolvedResourcePack(name, ResourcePackType.UNRESOLVED, null);
             }
-            if (Files.isDirectory(candidate)) {
-                return new ResolvedResourcePack(name, ResourcePackType.DIRECTORY, candidate);
-            }
-            if (Files.isRegularFile(candidate)) {
-                return new ResolvedResourcePack(name, ResourcePackType.ZIP, candidate);
+            try {
+                Path realRoot = root.toRealPath();
+                Path realCandidate = candidate.toRealPath();
+                if (!realCandidate.startsWith(realRoot) || realCandidate.equals(realRoot)) {
+                    return new ResolvedResourcePack(name, ResourcePackType.UNRESOLVED, null);
+                }
+                if (Files.isDirectory(realCandidate)) {
+                    return new ResolvedResourcePack(name, ResourcePackType.DIRECTORY, realCandidate);
+                }
+                if (Files.isRegularFile(realCandidate)) {
+                    return new ResolvedResourcePack(name, ResourcePackType.ZIP, realCandidate);
+                }
+            } catch (IOException ignored) {
+                return new ResolvedResourcePack(name, ResourcePackType.UNRESOLVED, null);
             }
             return new ResolvedResourcePack(name, ResourcePackType.UNRESOLVED, null);
         }

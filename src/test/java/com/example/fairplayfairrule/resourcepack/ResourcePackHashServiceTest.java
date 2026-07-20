@@ -86,6 +86,28 @@ class ResourcePackHashServiceTest {
     }
 
     @Test
+    void invalidatesForSubMillisecondTimestampChangeAtSameSize() throws Exception {
+        Path pack = temporaryDirectory.resolve("precise.zip");
+        Files.write(pack, new byte[]{1, 2, 3});
+        AtomicInteger reads = new AtomicInteger();
+        ResourcePackHashService service = countingService(reads);
+        service.hash(pack);
+        FileTime original = Files.getLastModifiedTime(pack);
+        FileTime preciseChange = FileTime.from(original.toInstant().plusNanos(100));
+
+        Files.write(pack, new byte[]{3, 2, 1});
+        Files.setLastModifiedTime(pack, preciseChange);
+        FileTime storedChange = Files.getLastModifiedTime(pack);
+        assertNotEquals(original, storedChange, "Filesystem must preserve a finer timestamp for this test");
+        assertEquals(original.toMillis(), storedChange.toMillis());
+
+        ResourcePackHashService.HashResult result = service.hash(pack);
+
+        assertFalse(result.cacheHit());
+        assertEquals(2, reads.get());
+    }
+
+    @Test
     void modifyingAnyByteChangesRawDigest() throws Exception {
         Path pack = temporaryDirectory.resolve("pack.zip");
         Files.write(pack, new byte[]{10, 20, 30, 40});

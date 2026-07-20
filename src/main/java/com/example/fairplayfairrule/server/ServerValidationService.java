@@ -7,6 +7,7 @@ import com.example.fairplayfairrule.network.ClientInfoPayload;
 import com.example.fairplayfairrule.resourcepack.PlayerPackSessionStore;
 import com.example.fairplayfairrule.resourcepack.ResourcePackManifestEntry;
 import com.example.fairplayfairrule.resourcepack.ResourcePackValidationCoordinator;
+import com.example.fairplayfairrule.resourcepack.ResourcePackPolicyService;
 import com.example.fairplayfairrule.resourcepack.ValidationResult;
 import net.minecraft.server.level.ServerPlayer;
 
@@ -27,8 +28,9 @@ public final class ServerValidationService {
         FairPlayFairRule.LOGGER.info("Processing {} client report for player {}",
                 payload.reportType(), player.getName().getString());
 
+        ResourcePackPolicyService policy = Config.getResourcePackPolicy();
+        ValidationResult structure = policy.validateManifestStructure(payload.resourcePacks());
         String bannedMod = findBannedMod(payload.modList());
-        List<String> safePacks = safePackReport(payload.resourcePacks());
         if (bannedMod != null) {
             FairPlayFairRule.LOGGER.warn("Player {} has banned mod: {}",
                     player.getName().getString(), bannedMod);
@@ -36,13 +38,23 @@ public final class ServerValidationService {
                     "\u00A7c\u00A7lYou have been banned!\n\n" +
                     "\u00A77Reason: \u00A7fUsing prohibited mod: \u00A7e" + bannedMod + "\n\n" +
                     "\u00A77This has been reported to the server administrators."));
-            DiscordWebhookService.sendBanNotification(player, bannedMod, payload.modList(), safePacks);
+            List<String> reportedPacks = structure.isValid()
+                    ? safePackReport(payload.resourcePacks())
+                    : List.of("Resource-pack manifest rejected: " + structure.code());
+            DiscordWebhookService.sendBanNotification(player, bannedMod, payload.modList(), reportedPacks);
+            return;
+        }
+
+        if (!structure.isValid()) {
+            FairPlayFairRule.LOGGER.warn("Malformed resource-pack report from player {}: {}",
+                    player.getName().getString(), structure.code());
+            player.connection.disconnect(TextComponents.literal(structure.message()));
             return;
         }
 
         ResourcePackValidationCoordinator.FlowResult flow =
                 ResourcePackValidationCoordinator.validateReport(
-                        Config.getResourcePackPolicy(), PACK_SESSIONS, playerId, payload.resourcePacks());
+                        policy, PACK_SESSIONS, playerId, payload.resourcePacks());
         ValidationResult validation = flow.validation();
         if (!validation.isValid()) {
             FairPlayFairRule.LOGGER.warn("Resource-pack validation failed for player {}: {}",
@@ -54,6 +66,7 @@ public final class ServerValidationService {
         if (flow.baselineEstablished()) {
             DiscordWebhookService.sendPlayerJoinNotification(player);
         }
+        List<String> safePacks = safePackReport(payload.resourcePacks());
         DiscordWebhookService.sendPlayerManifest(
                 player, payload.modList(), safePacks, payload.resourcePacks().size(), 0);
         FairPlayFairRule.LOGGER.info("Resource-pack validation complete for player {} (baseline established: {})",

@@ -5,6 +5,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.FileTime;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
@@ -48,7 +49,7 @@ public final class ResourcePackHashService {
             BasicFileAttributes after = readAttributes(path);
             if (sameMetadata(before, after)) {
                 cache.put(path, new CacheEntry(after.size(),
-                        after.lastModifiedTime().toMillis(), sha256));
+                        after.lastModifiedTime(), sha256));
                 return new HashResult(sha256, after.size(),
                         after.lastModifiedTime().toMillis(), false);
             }
@@ -94,10 +95,10 @@ public final class ResourcePackHashService {
     public record HashResult(String sha256, long size, long lastModifiedMillis, boolean cacheHit) {
     }
 
-    private record CacheEntry(long size, long lastModifiedMillis, String sha256) {
+    private record CacheEntry(long size, FileTime lastModified, String sha256) {
         private boolean matches(BasicFileAttributes attributes) {
             return size == attributes.size()
-                    && lastModifiedMillis == attributes.lastModifiedTime().toMillis();
+                    && lastModified.equals(attributes.lastModifiedTime());
         }
     }
 }

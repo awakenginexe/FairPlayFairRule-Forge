@@ -55,8 +55,11 @@ public final class PacketHandler {
             NetworkEvent.Context context = contextSupplier.get();
             ServerPlayer player = context.getSender();
             if (player != null) {
-                FairPlayFairRule.LOGGER.info("Received client info from player: {}", player.getName().getString());
-                ServerValidationService.validatePlayer(player, packet.payload);
+                context.enqueueWork(() -> {
+                    FairPlayFairRule.LOGGER.info("Received client info from player: {}",
+                            player.getName().getString());
+                    ServerValidationService.validatePlayer(player, packet.payload);
+                });
             } else {
                 FairPlayFairRule.LOGGER.warn("Received ClientInfoPacket but player context is null!");
             }

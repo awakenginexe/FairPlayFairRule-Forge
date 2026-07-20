@@ -32,6 +32,12 @@ public final class ClientDataService {
 
     /** Called only by join and resource-reload completion events. */
     public static void collectAndSendData(ResourcePackReportType reportType) {
+        Object connectionIdentity = Minecraft.getInstance().getConnection();
+        if (connectionIdentity == null) {
+            FairPlayFairRule.LOGGER.warn("Cannot collect a client integrity report before connection setup");
+            return;
+        }
+        ClientConnectionGuard connectionGuard = new ClientConnectionGuard(connectionIdentity);
         List<String> mods = ModList.get().getMods().stream()
                 .map(modInfo -> modInfo.getModId() + "@" + modInfo.getVersion())
                 .collect(Collectors.toCollection(ArrayList::new));
@@ -44,12 +50,13 @@ public final class ClientDataService {
                     "Active resource pack could not be resolved",
                     com.example.fairplayfairrule.resourcepack.ResourcePackType.UNRESOLVED, null));
         }
-        enqueueReport(reportType, List.copyOf(mods), selected);
+        enqueueReport(reportType, List.copyOf(mods), selected, connectionGuard);
     }
 
     private static synchronized void enqueueReport(ResourcePackReportType reportType,
                                                    List<String> mods,
-                                                   List<ResolvedResourcePack> selected) {
+                                                   List<ResolvedResourcePack> selected,
+                                                   ClientConnectionGuard connectionGuard) {
         sendChain = sendChain.handle((ignored, failure) -> null).thenRunAsync(() -> {
             List<ResourcePackManifestEntry> manifest = MANIFEST_SERVICE.buildManifest(selected);
             ClientInfoPayload payload;
@@ -62,10 +69,12 @@ public final class ClientDataService {
 
             Minecraft.getInstance().execute(() -> {
                 Minecraft minecraft = Minecraft.getInstance();
-                if (minecraft.player != null && minecraft.getConnection() != null) {
+                if (minecraft.player != null && connectionGuard.matches(minecraft.getConnection())) {
                     ClientPacketSender.sendToServer(new PacketHandler.ClientInfoPacket(payload));
                     FairPlayFairRule.LOGGER.info("Sent {} client integrity report with {} active pack entries",
                             reportType, manifest.size());
+                } else {
+                    FairPlayFairRule.LOGGER.debug("Discarded a stale client integrity report after connection change");
                 }
             });
         }, HASH_EXECUTOR);
