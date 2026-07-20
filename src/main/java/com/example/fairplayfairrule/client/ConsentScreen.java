@@ -23,7 +23,8 @@ public class ConsentScreen extends ConfirmScreen {
             "This server requires the FairPlayFairRule mod for anti-cheat purposes.\n\n" +
             "By accepting, you acknowledge that:\n" +
             "• Your complete mod list will be collected and sent to the server administrator\n" +
-            "• Your active resource packs will be collected and sent to the server administrator\n" +
+            "• Active resource-pack names, types, sizes, and raw SHA-256 hashes will be sent to the server\n" +
+            "• Resource-pack files and local filesystem paths will not be uploaded\n" +
             "• This information may be logged and reviewed for anti-cheat purposes\n" +
             "• Resource pack changes during gameplay will be re-reported\n\n" +
             "If you decline, you will not be able to play on this server."

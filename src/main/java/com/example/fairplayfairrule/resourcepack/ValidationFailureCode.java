@@ -1,0 +1,16 @@
+package com.example.fairplayfairrule.resourcepack;
+
+public enum ValidationFailureCode {
+    NONE,
+    MALFORMED_MANIFEST,
+    INVALID_HASH,
+    DUPLICATE_HASH,
+    DIRECTORY_NOT_SUPPORTED,
+    UNRESOLVED_PACK,
+    MISSING_REQUIRED_PACK,
+    UNAPPROVED_PACK,
+    UNAPPROVED_SERVER_PACK,
+    SESSION_PACK_ADDED,
+    SESSION_PACK_REMOVED,
+    SESSION_PACK_MODIFIED
+}

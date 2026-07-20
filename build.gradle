@@ -43,6 +43,7 @@ sourceSets {
         java {
             // Every target supplies exactly one transport implementation with the
             // same public packet API. The remaining game logic is shared.
+            srcDir 'src/compat/common/java'
             if (target.transport == 'forge40') {
                 srcDir 'src/compat/forge40/java'
             } else {
@@ -55,6 +56,14 @@ sourceSets {
                 srcDir 'src/compat/forge48/java'
             } else if (target.transport == 'payload') {
                 srcDir 'src/compat/payload/java'
+            }
+
+            // CommandSourceStack.sendSuccess changed from a Component to a
+            // Supplier<Component> after Minecraft 1.19.4.
+            if (['1.18.2', '1.19.2', '1.19.4'].contains(targetId)) {
+                srcDir 'src/compat/command-legacy/java'
+            } else {
+                srcDir 'src/compat/command-modern/java'
             }
         }
     }
@@ -93,6 +102,12 @@ repositories {
 
 dependencies {
     minecraft "net.minecraftforge:forge:${minecraftVersion}-${forgeVersion}"
+    testImplementation platform('org.junit:junit-bom:5.10.2')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+}
+
+tasks.named('test', Test).configure {
+    useJUnitPlatform()
 }
 
 tasks.withType(ProcessResources).configureEach {

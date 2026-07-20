@@ -5,6 +5,9 @@ import com.example.fairplayfairrule.client.ClientReloadHandler;
 import com.example.fairplayfairrule.client.ClientScreenHandler;
 import com.example.fairplayfairrule.config.Config;
 import com.example.fairplayfairrule.network.PacketHandler;
+import com.example.fairplayfairrule.server.ResourcePackAdminCommandHandler;
+import com.example.fairplayfairrule.server.DiscordWebhookLifecycleHandler;
+import com.example.fairplayfairrule.server.ServerPlayerLifecycleHandler;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.fml.ModLoadingContext;
@@ -35,6 +38,12 @@ public class FairPlayFairRule {
 
         // Register common setup event for network registration
         FMLJavaModLoadingContext.get().getModEventBus().addListener(this::commonSetup);
+        FMLJavaModLoadingContext.get().getModEventBus().addListener(Config::onConfigEvent);
+
+        // Clear validated pack baselines as soon as the corresponding session ends.
+        MinecraftForge.EVENT_BUS.register(ServerPlayerLifecycleHandler.class);
+        MinecraftForge.EVENT_BUS.register(ResourcePackAdminCommandHandler.class);
+        MinecraftForge.EVENT_BUS.register(DiscordWebhookLifecycleHandler.class);
 
         // Register client-side listeners only on client distribution
         if (FMLEnvironment.dist == Dist.CLIENT) {
