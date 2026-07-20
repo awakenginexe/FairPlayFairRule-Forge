@@ -35,8 +35,16 @@ FairPlayFairRule is a mod that must be installed on both the client and server t
 
 ### 📋 Data Collection
 - Collects complete mod list with versions (format: `modId@version`)
-- Collects active resource pack list
-- Automatically re-sends data when resource packs change
+- Collects a bounded manifest of active resource packs with display name, type, size, and raw whole-ZIP SHA-256
+- Never uploads resource-pack files or transmits local filesystem paths
+- Automatically re-validates after Minecraft resource reloads
+
+### 🧾 Resource-Pack Integrity
+- Required, globally optional, per-player optional, and server-downloaded hash policies
+- Exact active hash-set session baseline established only after successful join validation
+- Active pack changes require reconnecting, even when a newly enabled pack is otherwise approved
+- Unsupported directory and unresolved custom packs fail closed
+- Unchanged ZIP files reuse a path/size/last-modified SHA-256 cache
 
 ### 🚫 Auto-Ban System
 - Server-side configuration for banned mod IDs
@@ -64,6 +72,10 @@ FairPlayFairRule is a mod that must be installed on both the client and server t
    [General Settings]
    webhookUrl = "YOUR_DISCORD_WEBHOOK_URL_HERE"
    bannedModIds = ["examplehackmod", "examplecheatmod"]
+   requiredPackHashes = ["0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"]
+   globalApprovedPackHashes = []
+   playerApprovedPackHashes = ["11111111-1111-1111-1111-111111111111=abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd"]
+   serverDownloadedPackHashes = []
    ```
 4. Restart the server
 
@@ -78,6 +90,12 @@ The server configuration file (`config/fairplayfairrule-common.toml`) contains:
 
 - **webhookUrl**: Discord webhook URL for notifications (leave empty to disable)
 - **bannedModIds**: List of mod IDs that trigger automatic bans (case-insensitive)
+- **requiredPackHashes**: Raw SHA-256 hashes every player must have active
+- **globalApprovedPackHashes**: Optional ZIP hashes allowed for every player
+- **playerApprovedPackHashes**: Bounded `UUID=SHA256` entries; repeat a UUID to approve multiple hashes
+- **serverDownloadedPackHashes**: Expected hashes for packs downloaded from the current server
+
+All hashes are normalized to lowercase before comparison and must be exactly 64 hexadecimal characters. Built-in Minecraft/Forge resources do not require allowlist entries. User directory packs are rejected; compress them as ZIP files before approval.
 
 ## Technical Details
 
@@ -94,7 +112,7 @@ The server configuration file (`config/fairplayfairrule-common.toml`) contains:
 - Forge 43-47 legacy SimpleChannel transport for 1.19.2 through 1.20.1
 - Forge 48-49 channel transport for 1.20.2 and 1.20.4
 - Forge 50-52 payload-aware channel transport for 1.20.6 and 1.21.1
-- A bounded `ClientInfoPacket` codec with manual `FriendlyByteBuf` encoding
+- A strict protocol-2 `ClientInfoPacket` codec with bounded structured resource-pack manifests
 
 ### External Services
 - **Hastebin** (`https://hst.sh/`) for uploading large mod/pack lists

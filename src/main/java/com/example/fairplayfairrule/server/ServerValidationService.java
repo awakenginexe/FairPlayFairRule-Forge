@@ -3,93 +3,89 @@ package com.example.fairplayfairrule.server;
 import com.example.fairplayfairrule.FairPlayFairRule;
 import com.example.fairplayfairrule.compat.TextComponents;
 import com.example.fairplayfairrule.config.Config;
-import net.minecraft.network.chat.Component;
+import com.example.fairplayfairrule.network.ClientInfoPayload;
+import com.example.fairplayfairrule.resourcepack.PlayerPackSessionStore;
+import com.example.fairplayfairrule.resourcepack.ResourcePackManifestEntry;
+import com.example.fairplayfairrule.resourcepack.ResourcePackValidationCoordinator;
+import com.example.fairplayfairrule.resourcepack.ValidationResult;
 import net.minecraft.server.level.ServerPlayer;
 
-import java.util.HashMap;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
+import java.util.Locale;
 import java.util.UUID;
 
-/**
- * Server-side service for validating player mod lists and resource packs
- * Handles auto-ban logic and Discord webhook notifications
- */
-public class ServerValidationService {
+/** Server-side orchestration for existing mod checks and resource-pack integrity policy. */
+public final class ServerValidationService {
+    private static final PlayerPackSessionStore PACK_SESSIONS = new PlayerPackSessionStore();
 
-    // Track whether each player has already sent their initial join data
-    private static final Map<UUID, Boolean> playerInitialJoinMap = new HashMap<>();
+    private ServerValidationService() {
+    }
 
-    /**
-     * Validate a player's mod list and resource packs
-     *
-     * @param player The player to validate
-     * @param clientMods The list of mods from the client (format: "modId@version")
-     * @param clientPacks The list of active resource packs from the client
-     * @param isResourcePackUpdate Whether this is a resource pack update (vs initial join)
-     */
-    public static void validatePlayer(ServerPlayer player, List<String> clientMods, List<String> clientPacks, boolean isResourcePackUpdate) {
-        UUID playerUUID = player.getUUID();
+    public static void validatePlayer(ServerPlayer player, ClientInfoPayload payload) {
+        UUID playerId = player.getUUID();
+        FairPlayFairRule.LOGGER.info("Processing {} client report for player {}",
+                payload.reportType(), player.getName().getString());
 
-        // Determine if this is the first time we're receiving data from this player
-        boolean isInitialJoin = !playerInitialJoinMap.containsKey(playerUUID);
-
-        if (isInitialJoin) {
-            playerInitialJoinMap.put(playerUUID, true);
-            FairPlayFairRule.LOGGER.info("Processing INITIAL join data for player: {}", player.getName().getString());
-        } else {
-            FairPlayFairRule.LOGGER.info("Processing RESOURCE PACK UPDATE for player: {}", player.getName().getString());
+        String bannedMod = findBannedMod(payload.modList());
+        List<String> safePacks = safePackReport(payload.resourcePacks());
+        if (bannedMod != null) {
+            FairPlayFairRule.LOGGER.warn("Player {} has banned mod: {}",
+                    player.getName().getString(), bannedMod);
+            player.connection.disconnect(TextComponents.literal(
+                    "\u00A7c\u00A7lYou have been banned!\n\n" +
+                    "\u00A77Reason: \u00A7fUsing prohibited mod: \u00A7e" + bannedMod + "\n\n" +
+                    "\u00A77This has been reported to the server administrators."));
+            DiscordWebhookService.sendBanNotification(player, bannedMod, payload.modList(), safePacks);
+            return;
         }
 
-        // Step 1: Check for banned mods
+        ResourcePackValidationCoordinator.FlowResult flow =
+                ResourcePackValidationCoordinator.validateReport(
+                        Config.getResourcePackPolicy(), PACK_SESSIONS, playerId, payload.resourcePacks());
+        ValidationResult validation = flow.validation();
+        if (!validation.isValid()) {
+            FairPlayFairRule.LOGGER.warn("Resource-pack validation failed for player {}: {}",
+                    player.getName().getString(), validation.code());
+            player.connection.disconnect(TextComponents.literal(validation.message()));
+            return;
+        }
+
+        if (flow.baselineEstablished()) {
+            DiscordWebhookService.sendPlayerJoinNotification(player);
+        }
+        DiscordWebhookService.sendPlayerManifest(
+                player, payload.modList(), safePacks, payload.resourcePacks().size(), 0);
+        FairPlayFairRule.LOGGER.info("Resource-pack validation complete for player {} (baseline established: {})",
+                player.getName().getString(), flow.baselineEstablished());
+    }
+
+    public static void onPlayerDisconnect(UUID playerId) {
+        PACK_SESSIONS.clear(playerId);
+    }
+
+    private static String findBannedMod(List<String> clientMods) {
         List<? extends String> bannedModIds = Config.BANNED_MOD_IDS.get();
-
         for (String clientModEntry : clientMods) {
-            // Extract mod ID from "modId@version" format
-            String modId = clientModEntry.split("@")[0].toLowerCase();
-
-            // Check if this mod ID is in the banned list (case-insensitive)
+            int separator = clientModEntry.indexOf('@');
+            String modId = (separator < 0 ? clientModEntry : clientModEntry.substring(0, separator))
+                    .toLowerCase(Locale.ROOT);
             for (String bannedModId : bannedModIds) {
                 if (modId.equalsIgnoreCase(bannedModId)) {
-                    FairPlayFairRule.LOGGER.warn("Player {} has banned mod: {}", player.getName().getString(), modId);
-
-                    // Kick the player immediately
-                    player.connection.disconnect(TextComponents.literal(
-                            "\u00A7c\u00A7lYou have been banned!\n\n" +
-                            "\u00A77Reason: \u00A7fUsing prohibited mod: \u00A7e" + modId + "\n\n" +
-                            "\u00A77This has been reported to the server administrators."
-                    ));
-
-                    // Send high-priority Discord alert
-                    DiscordWebhookService.sendBanNotification(player, modId, clientMods, clientPacks);
-
-                    // Don't proceed with normal webhook sending
-                    return;
+                    return modId;
                 }
             }
         }
-
-        // Step 2: Player is not banned - send webhook notifications
-        int packEnabledCount = clientPacks.size();
-        int packDisabledCount = 0; // We only get enabled packs from the client
-
-        if (isInitialJoin) {
-            // Initial join: Send both join notification AND player manifest
-            DiscordWebhookService.sendPlayerJoinNotification(player);
-            DiscordWebhookService.sendPlayerManifest(player, clientMods, clientPacks, packEnabledCount, packDisabledCount);
-        } else {
-            // Resource pack update: Send ONLY player manifest
-            DiscordWebhookService.sendPlayerManifest(player, clientMods, clientPacks, packEnabledCount, packDisabledCount);
-        }
-
-        FairPlayFairRule.LOGGER.info("Validation complete for player: {}", player.getName().getString());
+        return null;
     }
 
-    /**
-     * Clear tracking data when a player disconnects
-     * Should be called from a player disconnect event if needed
-     */
-    public static void onPlayerDisconnect(UUID playerUUID) {
-        playerInitialJoinMap.remove(playerUUID);
+    private static List<String> safePackReport(List<ResourcePackManifestEntry> manifest) {
+        List<String> safe = new ArrayList<>(manifest.size());
+        for (ResourcePackManifestEntry pack : manifest) {
+            String hash = pack.sha256().isEmpty() ? "n/a" : pack.sha256();
+            safe.add(pack.displayName() + " | type=" + pack.type()
+                    + " | size=" + pack.size() + " | sha256=" + hash);
+        }
+        return safe;
     }
 }

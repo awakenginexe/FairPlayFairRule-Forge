@@ -43,6 +43,7 @@ sourceSets {
         java {
             // Every target supplies exactly one transport implementation with the
             // same public packet API. The remaining game logic is shared.
+            srcDir 'src/compat/common/java'
             if (target.transport == 'forge40') {
                 srcDir 'src/compat/forge40/java'
             } else {
@@ -93,6 +94,12 @@ repositories {
 
 dependencies {
     minecraft "net.minecraftforge:forge:${minecraftVersion}-${forgeVersion}"
+    testImplementation platform('org.junit:junit-bom:5.10.2')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+}
+
+tasks.named('test', Test).configure {
+    useJUnitPlatform()
 }
 
 tasks.withType(ProcessResources).configureEach {

@@ -1,58 +1,73 @@
 package com.example.fairplayfairrule.client;
 
 import com.example.fairplayfairrule.FairPlayFairRule;
+import com.example.fairplayfairrule.network.ClientInfoPayload;
 import com.example.fairplayfairrule.network.PacketHandler;
+import com.example.fairplayfairrule.network.ResourcePackReportType;
+import com.example.fairplayfairrule.resourcepack.ResourcePackHashService;
+import com.example.fairplayfairrule.resourcepack.ResourcePackManifestEntry;
 import net.minecraft.client.Minecraft;
-import net.minecraft.server.packs.repository.Pack;
 import net.minecraftforge.fml.ModList;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
-/**
- * Client-side service for collecting mod and resource pack data
- * and sending it to the server for validation
- */
-public class ClientDataService {
+/** Event-driven client collection with serialized off-thread ZIP hashing. */
+public final class ClientDataService {
+    private static final ResourcePackManifestService MANIFEST_SERVICE =
+            new ResourcePackManifestService(new ResourcePackHashService());
+    private static final ExecutorService HASH_EXECUTOR = Executors.newSingleThreadExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "fairplay-resource-pack-hasher");
+        thread.setDaemon(true);
+        return thread;
+    });
+    private static CompletableFuture<Void> sendChain = CompletableFuture.completedFuture(null);
 
-    /**
-     * Collect the client's mod list and active resource packs, then send to server
-     * This method is called on initial server join and when resource packs are reloaded
-     */
-    public static void collectAndSendData() {
+    private ClientDataService() {
+    }
+
+    /** Called only by join and resource-reload completion events. */
+    public static void collectAndSendData(ResourcePackReportType reportType) {
+        List<String> mods = ModList.get().getMods().stream()
+                .map(modInfo -> modInfo.getModId() + "@" + modInfo.getVersion())
+                .collect(Collectors.toCollection(ArrayList::new));
+        List<ResolvedResourcePack> selected;
         try {
-            FairPlayFairRule.LOGGER.info("Collecting client data (mods and resource packs)...");
+            selected = MANIFEST_SERVICE.resolveSelectedPacks();
+        } catch (RuntimeException exception) {
+            FairPlayFairRule.LOGGER.error("Unable to resolve the active resource-pack selection");
+            selected = List.of(new ResolvedResourcePack(
+                    "Active resource pack could not be resolved",
+                    com.example.fairplayfairrule.resourcepack.ResourcePackType.UNRESOLVED, null));
+        }
+        enqueueReport(reportType, List.copyOf(mods), selected);
+    }
 
-            // Collect mod list in format "modId@version"
-            List<String> modList = ModList.get().getMods().stream()
-                    .map(modInfo -> modInfo.getModId() + "@" + modInfo.getVersion().toString())
-                    .collect(Collectors.toCollection(ArrayList::new));
-
-            FairPlayFairRule.LOGGER.info("Collected {} mods", modList.size());
-
-            // Collect active resource pack list
-            Minecraft minecraft = Minecraft.getInstance();
-            List<String> resourcePackList = new ArrayList<>();
-
-            if (minecraft.getResourcePackRepository() != null) {
-                resourcePackList = minecraft.getResourcePackRepository()
-                        .getSelectedPacks()
-                        .stream()
-                        .map(Pack::getId)
-                        .collect(Collectors.toCollection(ArrayList::new));
-
-                FairPlayFairRule.LOGGER.info("Collected {} active resource packs", resourcePackList.size());
-            } else {
-                FairPlayFairRule.LOGGER.warn("Resource pack repository is null!");
+    private static synchronized void enqueueReport(ResourcePackReportType reportType,
+                                                   List<String> mods,
+                                                   List<ResolvedResourcePack> selected) {
+        sendChain = sendChain.handle((ignored, failure) -> null).thenRunAsync(() -> {
+            List<ResourcePackManifestEntry> manifest = MANIFEST_SERVICE.buildManifest(selected);
+            ClientInfoPayload payload;
+            try {
+                payload = new ClientInfoPayload(reportType, mods, manifest);
+            } catch (IllegalArgumentException exception) {
+                FairPlayFairRule.LOGGER.error("Client manifest exceeded protocol safety bounds");
+                return;
             }
 
-            ClientPacketSender.sendToServer(new PacketHandler.ClientInfoPacket(modList, resourcePackList));
-
-            FairPlayFairRule.LOGGER.info("Client data sent to server successfully");
-
-        } catch (Exception e) {
-            FairPlayFairRule.LOGGER.error("Error collecting/sending client data", e);
-        }
+            Minecraft.getInstance().execute(() -> {
+                Minecraft minecraft = Minecraft.getInstance();
+                if (minecraft.player != null && minecraft.getConnection() != null) {
+                    ClientPacketSender.sendToServer(new PacketHandler.ClientInfoPacket(payload));
+                    FairPlayFairRule.LOGGER.info("Sent {} client integrity report with {} active pack entries",
+                            reportType, manifest.size());
+                }
+            });
+        }, HASH_EXECUTOR);
     }
 }

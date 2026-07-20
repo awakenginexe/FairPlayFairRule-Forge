@@ -2,6 +2,7 @@ package com.example.fairplayfairrule.client;
 
 import com.example.fairplayfairrule.FairPlayFairRule;
 import net.minecraft.client.Minecraft;
+import com.example.fairplayfairrule.network.ResourcePackReportType;
 import net.minecraft.server.packs.resources.PreparableReloadListener;
 import net.minecraft.server.packs.resources.ResourceManager;
 import net.minecraft.util.profiling.ProfilerFiller;
@@ -56,7 +57,7 @@ public class ClientReloadHandler {
                 Minecraft minecraft = Minecraft.getInstance();
                 if (minecraft.player != null && minecraft.getConnection() != null) {
                     FairPlayFairRule.LOGGER.info("Resource pack reload detected - re-collecting and sending data");
-                    ClientDataService.collectAndSendData();
+                    ClientDataService.collectAndSendData(ResourcePackReportType.RELOAD);
                 } else {
                     FairPlayFairRule.LOGGER.debug("Resource pack reload detected but not connected to server");
                 }

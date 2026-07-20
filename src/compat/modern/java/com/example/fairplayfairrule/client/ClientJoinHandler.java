@@ -2,6 +2,7 @@ package com.example.fairplayfairrule.client;
 
 import com.example.fairplayfairrule.FairPlayFairRule;
 import net.minecraft.client.Minecraft;
+import com.example.fairplayfairrule.network.ResourcePackReportType;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.api.distmarker.OnlyIn;
 import net.minecraftforge.client.event.ClientPlayerNetworkEvent;
@@ -24,7 +25,7 @@ public final class ClientJoinHandler {
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.getCurrentServer() != null || minecraft.isLocalServer()) {
             FairPlayFairRule.LOGGER.info("Player joined server - collecting and sending client data");
-            ClientDataService.collectAndSendData();
+            ClientDataService.collectAndSendData(ResourcePackReportType.JOIN);
         }
     }
 }
