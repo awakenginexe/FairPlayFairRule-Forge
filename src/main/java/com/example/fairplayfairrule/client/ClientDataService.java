@@ -11,7 +11,6 @@ import net.minecraftforge.fml.ModList;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -23,7 +22,6 @@ public final class ClientDataService {
     private static final ResourcePackManifestService MANIFEST_SERVICE =
             new ResourcePackManifestService(new ResourcePackHashService());
     private static ThreadPoolExecutor hashExecutor;
-    private static CompletableFuture<Void> sendChain = CompletableFuture.completedFuture(null);
 
     private ClientDataService() {
     }
@@ -56,7 +54,7 @@ public final class ClientDataService {
                                                    List<ResolvedResourcePack> selected,
                                                    ClientConnectionGuard connectionGuard) {
         try {
-            sendChain = sendChain.handle((ignored, failure) -> null).thenRunAsync(() -> {
+            executor().execute(() -> {
             List<ResourcePackManifestEntry> manifest = MANIFEST_SERVICE.buildManifest(selected);
             ClientInfoPayload payload;
             try {
@@ -76,7 +74,7 @@ public final class ClientDataService {
                     FairPlayFairRule.LOGGER.debug("Discarded a stale client integrity report after connection change");
                 }
             });
-            }, executor());
+            });
         } catch (RejectedExecutionException exception) {
             FairPlayFairRule.LOGGER.warn("Client resource-pack report queue is full; report skipped");
         }
@@ -87,7 +85,6 @@ public final class ClientDataService {
             hashExecutor.shutdownNow();
             hashExecutor = null;
         }
-        sendChain = CompletableFuture.completedFuture(null);
     }
 
     private static synchronized ThreadPoolExecutor executor() {
