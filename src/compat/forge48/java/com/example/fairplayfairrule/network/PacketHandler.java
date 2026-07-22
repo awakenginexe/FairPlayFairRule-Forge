@@ -15,7 +15,7 @@ import net.minecraftforge.network.SimpleChannel;
  */
 public final class PacketHandler {
 
-    private static final int PROTOCOL_VERSION = 2;
+    private static final int PROTOCOL_VERSION = 3;
 
     public static final SimpleChannel CHANNEL = ChannelBuilder
             .named(new ResourceLocation(FairPlayFairRule.MOD_ID, "main"))

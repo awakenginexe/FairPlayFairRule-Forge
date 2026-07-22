@@ -1,13 +1,14 @@
 package com.example.fairplayfairrule.client;
 
+import com.example.fairplayfairrule.resourcepack.ModBundledIdentity;
 import com.example.fairplayfairrule.resourcepack.ResourcePackType;
 import net.minecraft.client.Minecraft;
 import net.minecraft.server.packs.PackResources;
 import net.minecraft.server.packs.repository.Pack;
 import net.minecraft.server.packs.repository.PackSource;
+import net.minecraftforge.resource.ResourcePackLoader;
 
 import java.io.File;
-import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.nio.file.Files;
@@ -17,120 +18,145 @@ import java.util.IdentityHashMap;
 import java.util.Set;
 import java.util.zip.ZipFile;
 
-/**
- * Compatibility boundary for resolving Minecraft's selected Pack abstraction.
- * Reflection is deliberately bounded and confined to this adapter.
- */
+import static com.example.fairplayfairrule.client.TrustedResourcePackOriginClassifier.*;
+
+/** Narrow Forge compatibility boundary for selected-pack source and backing identity. */
 public final class ResourcePackResolver {
     private static final int MAX_REFLECTION_DEPTH = 5;
     private static final int MAX_REFLECTED_OBJECTS = 64;
 
-    private ResourcePackResolver() {
-    }
+    private ResourcePackResolver() { }
 
     public static ResolvedResourcePack resolve(Minecraft minecraft, Pack pack) {
         String id = pack.getId();
         String name = pack.getTitle().getString();
-
-        if (pack.getPackSource() == PackSource.SERVER) {
-            Path downloaded = resolveDownloadedPath(pack);
-            return new ResolvedResourcePack(name, downloaded == null
-                    ? ResourcePackType.UNRESOLVED
-                    : ResourcePackType.SERVER_DOWNLOADED, downloaded);
-        }
-
-        if (isBuiltIn(pack, id)) {
-            return new ResolvedResourcePack(name, ResourcePackType.BUILT_IN, null);
-        }
-
-        if (id != null && id.startsWith("file/")) {
-            Path root = minecraft.gameDirectory.toPath().resolve("resourcepacks")
-                    .toAbsolutePath().normalize();
-            String relativeName = id.substring("file/".length());
-            Path candidate = root.resolve(relativeName).toAbsolutePath().normalize();
-            if (!candidate.startsWith(root) || candidate.equals(root)) {
-                return new ResolvedResourcePack(name, ResourcePackType.UNRESOLVED, null);
+        PackSource source = pack.getPackSource();
+        try (PackResources resources = pack.open()) {
+            if (source == PackSource.BUILT_IN) {
+                ImplementationOrigin implementation = isKnownMinecraftBuiltIn(resources)
+                        ? ImplementationOrigin.VANILLA_BUILT_IN : ImplementationOrigin.UNKNOWN_VIRTUAL;
+                ResourcePackType type = classify(ProfileOrigin.MINECRAFT_BUILT_IN, implementation);
+                return new ResolvedResourcePack(name, type, null);
             }
-            try {
-                Path realRoot = root.toRealPath();
-                Path realCandidate = candidate.toRealPath();
-                if (!realCandidate.startsWith(realRoot) || realCandidate.equals(realRoot)) {
-                    return new ResolvedResourcePack(name, ResourcePackType.UNRESOLVED, null);
-                }
-                if (Files.isDirectory(realCandidate)) {
-                    return new ResolvedResourcePack(name, ResourcePackType.DIRECTORY, realCandidate);
-                }
-                if (Files.isRegularFile(realCandidate)) {
-                    return new ResolvedResourcePack(name, ResourcePackType.ZIP, realCandidate);
-                }
-            } catch (IOException ignored) {
-                return new ResolvedResourcePack(name, ResourcePackType.UNRESOLVED, null);
-            }
-            return new ResolvedResourcePack(name, ResourcePackType.UNRESOLVED, null);
-        }
 
+            if (source == PackSource.SERVER) {
+                Path path = findBackingPath(resources);
+                Path safe = path == null ? null : ResourcePackPathGuard.contained(
+                        minecraft.gameDirectory.toPath(), path, true);
+                ImplementationOrigin implementation = safe != null && Files.isRegularFile(safe)
+                        && isKnownZipImplementation(resources)
+                        ? ImplementationOrigin.USER_ZIP : ImplementationOrigin.UNKNOWN_VIRTUAL;
+                ResourcePackType type = classify(ProfileOrigin.SERVER, implementation);
+                return new ResolvedResourcePack(name, type, type == ResourcePackType.SERVER_DOWNLOADED
+                        ? safe : null);
+            }
+
+            Path userPath = resolveDirectUserPath(minecraft, id);
+            if (userPath != null) {
+                boolean directory = Files.isDirectory(userPath);
+                ImplementationOrigin implementation = directory && isKnownDirectoryImplementation(resources)
+                        ? ImplementationOrigin.USER_DIRECTORY
+                        : !directory && Files.isRegularFile(userPath) && isKnownZipImplementation(resources)
+                        ? ImplementationOrigin.USER_ZIP : ImplementationOrigin.UNKNOWN_VIRTUAL;
+                ResourcePackType type = classify(ProfileOrigin.USER, implementation);
+                return new ResolvedResourcePack(name, type,
+                        type == ResourcePackType.ZIP || type == ResourcePackType.DIRECTORY
+                                ? userPath : null);
+            }
+
+            if (isProvenForgeModPack(source, id, resources)) {
+                ResourcePackType type = classify(ProfileOrigin.FORGE_MOD_BUNDLED,
+                        ImplementationOrigin.FORGE_MOD);
+                return new ResolvedResourcePack(name, type, null,
+                        ModBundledIdentity.fromTrustedProfileKey(id));
+            }
+        } catch (Exception | LinkageError ignored) {
+            // Every unavailable or unexpected implementation fails closed below.
+        }
         return new ResolvedResourcePack(name, ResourcePackType.UNRESOLVED, null);
     }
 
-    private static boolean isBuiltIn(Pack pack, String id) {
-        return pack.getPackSource() == PackSource.BUILT_IN
-                || "vanilla".equals(id)
-                || "mod_resources".equals(id)
-                || (id != null && id.startsWith("mod:"));
+    private static Path resolveDirectUserPath(Minecraft minecraft, String id) {
+        if (id == null || !id.startsWith("file/")) return null;
+        String fileName = id.substring("file/".length());
+        if (fileName.isBlank() || fileName.contains("/") || fileName.contains("\\")) return null;
+        Path candidate = minecraft.gameDirectory.toPath().resolve("resourcepacks").resolve(fileName);
+        return ResourcePackPathGuard.contained(minecraft.gameDirectory.toPath(), candidate, false);
     }
 
-    private static Path resolveDownloadedPath(Pack pack) {
-        Set<Object> visited = Collections.newSetFromMap(new IdentityHashMap<>());
-        int[] inspected = {0};
-        try (PackResources resources = pack.open()) {
-            Path path = findPath(resources, 0, visited, inspected);
-            if (path == null) {
-                return null;
-            }
-            Path normalized = path.toAbsolutePath().normalize();
-            return Files.isRegularFile(normalized) ? normalized : null;
-        } catch (Exception | LinkageError ignored) {
-            return null;
+    private static boolean isProvenForgeModPack(PackSource source, String id,
+                                                PackResources resources) {
+        if (source != PackSource.DEFAULT || id == null) return false;
+        String className = resources.getClass().getName();
+        if (className.equals("net.minecraftforge.resource.DelegatingResourcePack")
+                || className.equals("net.minecraftforge.resource.DelegatingPackResources")) {
+            return "mod_resources".equals(id);
         }
+        Class<?> parent = resources.getClass().getSuperclass();
+        boolean forgeLoaderAnonymous = className.startsWith(
+                "net.minecraftforge.resource.ResourcePackLoader$") && parent != null
+                && (parent.getName().equals("net.minecraftforge.resource.PathResourcePack")
+                || parent.getName().equals("net.minecraftforge.resource.PathPackResources"));
+        if (forgeLoaderAnonymous) return registeredForgePackId(id);
+        return className.equals("net.minecraft.server.packs.PathPackResources")
+                && registeredForgePackId(id);
+    }
+
+    private static boolean registeredForgePackId(String id) {
+        try {
+            return ResourcePackLoader.getPackNames().contains(id);
+        } catch (RuntimeException | LinkageError exception) {
+            return false;
+        }
+    }
+
+    private static boolean isKnownMinecraftBuiltIn(PackResources resources) {
+        String name = resources.getClass().getName();
+        return name.equals("net.minecraft.server.packs.VanillaPackResources")
+                || name.equals("net.minecraft.server.packs.PathPackResources")
+                || name.equals("net.minecraft.server.packs.FilePackResources")
+                || name.equals("net.minecraft.server.packs.FolderPackResources")
+                || name.startsWith("net.minecraft.client.resources.ClientPackSource$");
+    }
+
+    private static boolean isKnownZipImplementation(PackResources resources) {
+        String name = resources.getClass().getName();
+        return name.equals("net.minecraft.server.packs.FilePackResources")
+                || name.equals("net.minecraft.server.packs.FileResourcePack")
+                || name.startsWith("net.minecraft.server.packs.FilePackResources$");
+    }
+
+    private static boolean isKnownDirectoryImplementation(PackResources resources) {
+        String name = resources.getClass().getName();
+        return name.equals("net.minecraft.server.packs.PathPackResources")
+                || name.equals("net.minecraft.server.packs.FolderPackResources")
+                || name.equals("net.minecraft.server.packs.FolderResourcePack");
+    }
+
+    private static Path findBackingPath(Object resources) {
+        Set<Object> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+        return findPath(resources, 0, visited, new int[]{0});
     }
 
     private static Path findPath(Object value, int depth, Set<Object> visited, int[] inspected) {
         if (value == null || depth > MAX_REFLECTION_DEPTH
-                || inspected[0]++ >= MAX_REFLECTED_OBJECTS || !visited.add(value)) {
-            return null;
-        }
-        if (value instanceof Path path) {
-            return path;
-        }
-        if (value instanceof File file) {
-            return file.toPath();
-        }
-        if (value instanceof ZipFile zipFile) {
-            return Path.of(zipFile.getName());
-        }
-
-        Class<?> type = value.getClass();
-        String packageName = type.getPackageName();
+                || inspected[0]++ >= MAX_REFLECTED_OBJECTS || !visited.add(value)) return null;
+        if (value instanceof Path path) return path;
+        if (value instanceof File file) return file.toPath();
+        if (value instanceof ZipFile zipFile) return Path.of(zipFile.getName());
+        String packageName = value.getClass().getPackageName();
         if (!packageName.startsWith("net.minecraft") && !packageName.startsWith("net.minecraftforge")) {
             return null;
         }
-        for (Class<?> current = type; current != null && current != Object.class;
+        for (Class<?> current = value.getClass(); current != null && current != Object.class;
              current = current.getSuperclass()) {
             for (Field field : current.getDeclaredFields()) {
-                if (Modifier.isStatic(field.getModifiers()) || field.getType().isPrimitive()) {
-                    continue;
-                }
+                if (Modifier.isStatic(field.getModifiers()) || field.getType().isPrimitive()) continue;
                 try {
-                    if (!field.trySetAccessible()) {
-                        continue;
-                    }
+                    if (!field.trySetAccessible()) continue;
                     Path found = findPath(field.get(value), depth + 1, visited, inspected);
-                    if (found != null) {
-                        return found;
-                    }
-                } catch (ReflectiveOperationException | RuntimeException ignored) {
-                    // Fail closed if a version prevents inspection of this field.
-                }
+                    if (found != null) return found;
+                } catch (ReflectiveOperationException | RuntimeException ignored) { }
             }
         }
         return null;

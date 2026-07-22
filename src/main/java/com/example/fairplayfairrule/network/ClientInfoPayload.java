@@ -31,6 +31,8 @@ public record ClientInfoPayload(ResourcePackReportType reportType, List<String> 
                     || pack.displayName().isEmpty()
                     || pack.displayName().length() > ResourcePackLimits.MAX_DISPLAY_NAME_LENGTH
                     || pack.sha256() == null || pack.sha256().length() > ResourcePackLimits.SHA256_LENGTH
+                    || pack.identity() == null
+                    || pack.identity().length() > ResourcePackLimits.MAX_PACK_IDENTITY_LENGTH
                     || pack.size() < 0) {
                 throw new IllegalArgumentException("Invalid resource-pack manifest entry");
             }

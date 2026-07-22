@@ -17,7 +17,7 @@ import java.util.function.Supplier;
  */
 public final class PacketHandler {
 
-    private static final String PROTOCOL_VERSION = "2";
+    private static final String PROTOCOL_VERSION = "3";
 
     public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             new ResourceLocation(FairPlayFairRule.MOD_ID, "main"),

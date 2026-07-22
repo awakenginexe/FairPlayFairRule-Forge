@@ -12,7 +12,7 @@ public final class ServerPlayerLifecycleHandler {
     @SubscribeEvent
     public static void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
         if (event.getPlayer() instanceof ServerPlayer player) {
-            ServerValidationService.onPlayerDisconnect(player.getUUID());
+            ServerValidationService.onPlayerDisconnect(player);
         }
     }
 }

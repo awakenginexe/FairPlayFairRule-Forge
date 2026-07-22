@@ -25,6 +25,7 @@ public final class ClientInfoPayloadCodec {
             buffer.writeUtf(pack.sha256(), ResourcePackLimits.SHA256_LENGTH);
             buffer.writeLong(pack.size());
             buffer.writeByte(pack.type().ordinal());
+            buffer.writeUtf(pack.identity(), ResourcePackLimits.MAX_PACK_IDENTITY_LENGTH);
         }
     }
 
@@ -43,7 +44,8 @@ public final class ClientInfoPayloadCodec {
             String sha256 = buffer.readUtf(ResourcePackLimits.SHA256_LENGTH);
             long size = buffer.readLong();
             ResourcePackType type = packTypeFromNetworkId(buffer.readUnsignedByte());
-            packs.add(new ResourcePackManifestEntry(name, sha256, size, type));
+            String identity = buffer.readUtf(ResourcePackLimits.MAX_PACK_IDENTITY_LENGTH);
+            packs.add(new ResourcePackManifestEntry(name, sha256, size, type, identity));
         }
         return new ClientInfoPayload(reportType, mods, packs);
     }

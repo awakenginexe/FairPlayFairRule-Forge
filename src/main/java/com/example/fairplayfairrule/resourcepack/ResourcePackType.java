@@ -5,6 +5,7 @@ public enum ResourcePackType {
     ZIP,
     DIRECTORY,
     BUILT_IN,
+    MOD_BUNDLED,
     SERVER_DOWNLOADED,
     UNRESOLVED
 }

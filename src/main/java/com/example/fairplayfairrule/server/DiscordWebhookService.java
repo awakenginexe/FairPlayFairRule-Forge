@@ -2,6 +2,8 @@ package com.example.fairplayfairrule.server;
 
 import com.example.fairplayfairrule.FairPlayFairRule;
 import com.example.fairplayfairrule.config.Config;
+import com.example.fairplayfairrule.network.ClientInfoPayload;
+import com.example.fairplayfairrule.resourcepack.ValidationResult;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import net.minecraft.server.level.ServerPlayer;
@@ -84,6 +86,25 @@ public final class DiscordWebhookService {
         submit(snapshot.playerId(), runtime().delivery.deliver(request), "ban notification");
     }
 
+    /** Queues a high-priority alert after the caller has already enforced rejection. */
+    public static void sendResourcePackViolation(ServerPlayer player, ClientInfoPayload payload,
+            ResourcePackViolationPhase phase, ValidationResult validation) {
+        if (validation == null || validation.isValid()) return;
+        try {
+            ResourcePackViolationEvent event = new ResourcePackViolationEvent(
+                    player.getName().getString(), player.getUUID(),
+                    player.getServer().getServerVersion(), forgeVersion(), FairPlayFairRule.VERSION,
+                    FairPlayFairRule.PROTOCOL_VERSION, Instant.now(), phase,
+                    validation.violation(), payload == null ? List.of() : payload.modList(),
+                    validation.violation().manifestSafeToAttach()
+                            ? validation.normalizedManifest() : List.of());
+            runtime().violations.report(event);
+        } catch (RuntimeException exception) {
+            FairPlayFairRule.LOGGER.warn(
+                    "Resource-pack violation reporting could not be queued; enforcement was unaffected.");
+        }
+    }
+
     /** Called from the Forge server-stop event so no webhook worker survives its server. */
     public static synchronized void shutdown() {
         if (runtime != null) {
@@ -136,6 +157,14 @@ public final class DiscordWebhookService {
             runtime = new RuntimeState();
         }
         return runtime;
+    }
+
+    private static String forgeVersion() {
+        try {
+            return net.minecraftforge.versions.forge.ForgeVersion.getVersion();
+        } catch (RuntimeException | LinkageError exception) {
+            return "Forge";
+        }
     }
 
     private static JsonObject joinSummary(PlayerSnapshot player, Instant timestamp) {
@@ -212,6 +241,7 @@ public final class DiscordWebhookService {
         private final ThreadPoolExecutor httpExecutor = boundedExecutor(
                 "fpfr-discord-http", 4, 64);
         private final DiscordManifestDeliveryService delivery;
+        private final ResourcePackViolationReporter violations;
 
         private RuntimeState() {
             HttpClient client = HttpClient.newBuilder()
@@ -224,10 +254,15 @@ public final class DiscordWebhookService {
                     deliveryExecutor,
                     HASTEBIN_WAIT,
                     () -> "fpfr" + UUID.randomUUID().toString().replace("-", ""));
+            violations = new ResourcePackViolationReporter(() ->
+                    new ResourcePackViolationReporter.ReportingConfig(configuredWebhook(),
+                            Config.LOG_RESOURCE_PACK_VIOLATIONS.get(),
+                            Config.HASTEBIN_MIRROR_ENABLED.get()), delivery);
         }
 
         @Override
         public void close() {
+            violations.close();
             deliveryExecutor.shutdownNow();
             httpExecutor.shutdownNow();
         }

@@ -1,9 +1,12 @@
 package com.example.fairplayfairrule.resourcepack;
 
 import java.io.IOException;
-import java.io.InputStream;
+import java.nio.ByteBuffer;
+import java.nio.channels.SeekableByteChannel;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
 import java.security.MessageDigest;
@@ -11,8 +14,9 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 
-/** Computes raw whole-file SHA-256 values with a bounded metadata cache. */
+/** Raw whole-ZIP SHA-256 with bounded, identity-aware metadata caching. */
 public final class ResourcePackHashService {
     private static final int DEFAULT_MAX_CACHE_ENTRIES = 256;
     private final HashComputer computer;
@@ -23,95 +27,132 @@ public final class ResourcePackHashService {
     }
 
     public ResourcePackHashService(int maximumEntries, HashComputer computer) {
-        if (maximumEntries <= 0) {
-            throw new IllegalArgumentException("maximumEntries must be positive");
-        }
+        if (maximumEntries <= 0) throw new IllegalArgumentException("maximumEntries must be positive");
         this.computer = java.util.Objects.requireNonNull(computer, "computer");
         this.cache = new LinkedHashMap<>(16, 0.75f, true) {
-            @Override
-            protected boolean removeEldestEntry(Map.Entry<Path, CacheEntry> eldest) {
+            @Override protected boolean removeEldestEntry(Map.Entry<Path, CacheEntry> eldest) {
                 return size() > maximumEntries;
             }
         };
     }
 
-    public synchronized HashResult hash(Path input) throws IOException {
-        return hashInternal(input, true);
-    }
-
-    /** Computes a fresh digest without consulting or updating the metadata cache. */
-    public synchronized HashResult hashUncached(Path input) throws IOException {
-        return hashInternal(input, false);
-    }
+    public synchronized HashResult hash(Path input) throws IOException { return hashInternal(input, true); }
+    public synchronized HashResult hashUncached(Path input) throws IOException { return hashInternal(input, false); }
 
     private HashResult hashInternal(Path input, boolean useCache) throws IOException {
-        Path path = input.toAbsolutePath().normalize();
+        Path path = normalize(input);
         for (int attempt = 0; attempt < 2; attempt++) {
-            BasicFileAttributes before = readAttributes(path);
+            BasicFileAttributes before = attributes(path);
             if (useCache) {
                 CacheEntry cached = cache.get(path);
-                if (cached != null && cached.matches(before)) {
-                    return new HashResult(cached.sha256, before.size(),
-                            before.lastModifiedTime().toMillis(), true);
+                if (cached != null && cached.matches(before)
+                        && cached.contentProbe.equals(contentProbe(path, before.size()))) {
+                    BasicFileAttributes confirmed = attributes(path);
+                    if (sameIdentityAndMetadata(before, confirmed)) {
+                        return new HashResult(cached.sha256, before.size(),
+                                before.lastModifiedTime().toMillis(), true);
+                    }
                 }
             }
-
             String sha256 = computer.hash(path);
-            BasicFileAttributes after = readAttributes(path);
-            if (sameMetadata(before, after)) {
-                if (useCache) {
-                    cache.put(path, new CacheEntry(after.size(),
-                            after.lastModifiedTime(), sha256));
-                }
-                return new HashResult(sha256, after.size(),
-                        after.lastModifiedTime().toMillis(), false);
+            BasicFileAttributes after = attributes(path);
+            if (sameIdentityAndMetadata(before, after)) {
+                if (useCache) cache.put(path, new CacheEntry(after.size(),
+                        after.lastModifiedTime(), after.creationTime(), after.fileKey(), sha256,
+                        contentProbe(path, after.size())));
+                return new HashResult(sha256, after.size(), after.lastModifiedTime().toMillis(), false);
             }
         }
+        cache.remove(path);
         throw new IOException("Resource-pack file changed while it was being hashed");
     }
 
-    private static BasicFileAttributes readAttributes(Path path) throws IOException {
-        BasicFileAttributes attributes = Files.readAttributes(path, BasicFileAttributes.class);
-        if (!attributes.isRegularFile()) {
-            throw new IOException("Resource pack is not a regular ZIP file");
-        }
+    private static Path normalize(Path input) throws IOException {
+        if (input == null) throw new IOException("Resource-pack path is missing");
+        Path path = input.toAbsolutePath().normalize();
+        if (Files.isSymbolicLink(path)) throw new IOException("Resource pack cannot be a symbolic link");
+        Path noFollow = path.toRealPath(LinkOption.NOFOLLOW_LINKS);
+        Path real = path.toRealPath();
+        if (!noFollow.equals(real)) throw new IOException("Resource pack cannot be a link or junction");
+        return real;
+    }
+
+    private static BasicFileAttributes attributes(Path path) throws IOException {
+        BasicFileAttributes attributes = Files.readAttributes(path, BasicFileAttributes.class,
+                LinkOption.NOFOLLOW_LINKS);
+        if (!attributes.isRegularFile()) throw new IOException("Resource pack is not a regular file");
         return attributes;
     }
 
-    private static boolean sameMetadata(BasicFileAttributes first, BasicFileAttributes second) {
+    private static boolean sameIdentityAndMetadata(BasicFileAttributes first,
+                                                   BasicFileAttributes second) {
         return first.size() == second.size()
-                && first.lastModifiedTime().equals(second.lastModifiedTime());
+                && first.lastModifiedTime().equals(second.lastModifiedTime())
+                && sameIdentity(first, second);
+    }
+
+    private static boolean sameIdentity(BasicFileAttributes first, BasicFileAttributes second) {
+        if (first.fileKey() != null || second.fileKey() != null) {
+            return java.util.Objects.equals(first.fileKey(), second.fileKey());
+        }
+        return first.creationTime().equals(second.creationTime());
     }
 
     private static String computeRawSha256(Path path) throws IOException {
         MessageDigest digest;
-        try {
-            digest = MessageDigest.getInstance("SHA-256");
-        } catch (NoSuchAlgorithmException exception) {
+        try { digest = MessageDigest.getInstance("SHA-256"); }
+        catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("SHA-256 is unavailable", exception);
         }
-        byte[] buffer = new byte[16 * 1024];
-        try (InputStream input = Files.newInputStream(path)) {
-            int read;
-            while ((read = input.read(buffer)) != -1) {
-                digest.update(buffer, 0, read);
+        ByteBuffer buffer = ByteBuffer.allocate(16 * 1024);
+        try (SeekableByteChannel channel = Files.newByteChannel(path,
+                Set.of(StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS))) {
+            while (channel.read(buffer) != -1) {
+                buffer.flip();
+                digest.update(buffer);
+                buffer.clear();
+            }
+        }
+        return HexFormat.of().formatHex(digest.digest());
+    }
+
+    /** Small bounded replacement probe supplementing filesystem identity metadata. */
+    private static String contentProbe(Path path, long size) throws IOException {
+        MessageDigest digest;
+        try { digest = MessageDigest.getInstance("SHA-256"); }
+        catch (NoSuchAlgorithmException exception) { throw new IllegalStateException(exception); }
+        int length = (int) Math.min(4_096L, size);
+        ByteBuffer buffer = ByteBuffer.allocate(length);
+        try (SeekableByteChannel channel = Files.newByteChannel(path,
+                Set.of(StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS))) {
+            while (buffer.hasRemaining() && channel.read(buffer) > 0) { }
+            buffer.flip();
+            digest.update(buffer);
+            if (size > length) {
+                channel.position(Math.max(length, size - length));
+                buffer.clear();
+                while (buffer.hasRemaining() && channel.read(buffer) > 0) { }
+                buffer.flip();
+                digest.update(buffer);
             }
         }
         return HexFormat.of().formatHex(digest.digest());
     }
 
     @FunctionalInterface
-    public interface HashComputer {
-        String hash(Path path) throws IOException;
-    }
+    public interface HashComputer { String hash(Path path) throws IOException; }
 
-    public record HashResult(String sha256, long size, long lastModifiedMillis, boolean cacheHit) {
-    }
+    public record HashResult(String sha256, long size, long lastModifiedMillis, boolean cacheHit) { }
 
-    private record CacheEntry(long size, FileTime lastModified, String sha256) {
+    private record CacheEntry(long size, FileTime modified, FileTime created,
+                              Object fileKey, String sha256, String contentProbe) {
         private boolean matches(BasicFileAttributes attributes) {
+            boolean identityMatches = fileKey != null
+                    ? fileKey.equals(attributes.fileKey())
+                    : created.equals(attributes.creationTime());
             return size == attributes.size()
-                    && lastModified.equals(attributes.lastModifiedTime());
+                    && modified.equals(attributes.lastModifiedTime())
+                    && identityMatches;
         }
     }
 }

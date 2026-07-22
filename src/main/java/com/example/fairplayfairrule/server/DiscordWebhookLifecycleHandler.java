@@ -10,6 +10,7 @@ public final class DiscordWebhookLifecycleHandler {
 
     @SubscribeEvent
     public static void onServerStopped(ServerStoppedEvent event) {
+        ServerValidationService.onServerStopped();
         DiscordWebhookService.shutdown();
     }
 }

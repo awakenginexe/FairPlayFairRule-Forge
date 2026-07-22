@@ -13,7 +13,7 @@ import net.minecraftforge.network.SimpleChannel;
 /** Forge 50-52 transport implementation for Minecraft 1.20.6 and 1.21.1. */
 public final class PacketHandler {
 
-    private static final int PROTOCOL_VERSION = 2;
+    private static final int PROTOCOL_VERSION = 3;
 
     public static final SimpleChannel CHANNEL = ChannelBuilder
             .named(ResourceLocation.fromNamespaceAndPath(FairPlayFairRule.MOD_ID, "main"))

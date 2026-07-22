@@ -5,5 +5,9 @@ import com.example.fairplayfairrule.resourcepack.ResourcePackType;
 import java.nio.file.Path;
 
 /** Client-local resolver output. The path must never be serialized or logged. */
-public record ResolvedResourcePack(String displayName, ResourcePackType type, Path localPath) {
+public record ResolvedResourcePack(String displayName, ResourcePackType type, Path localPath,
+                                   String identity) {
+    public ResolvedResourcePack(String displayName, ResourcePackType type, Path localPath) {
+        this(displayName, type, localPath, "");
+    }
 }

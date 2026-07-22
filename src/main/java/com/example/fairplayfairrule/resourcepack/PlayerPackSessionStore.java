@@ -1,8 +1,8 @@
 package com.example.fairplayfairrule.resourcepack;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -14,7 +14,8 @@ public final class PlayerPackSessionStore {
         if (!result.isValid()) {
             throw new IllegalArgumentException("Cannot establish a baseline from failed validation");
         }
-        sessions.put(playerId, new SessionBaseline(result.activeHashes(), result.namesByHash()));
+        sessions.put(playerId, new SessionBaseline(result.orderedStateTokens(),
+                result.namesByStateToken(), result.normalizedManifest()));
     }
 
     public Optional<SessionBaseline> get(UUID playerId) {
@@ -25,10 +26,19 @@ public final class PlayerPackSessionStore {
         sessions.remove(playerId);
     }
 
-    public record SessionBaseline(Set<String> hashes, Map<String, String> namesByHash) {
+    public void clearAll() { sessions.clear(); }
+    public int size() { return sessions.size(); }
+
+    public record SessionBaseline(List<String> orderedStateTokens,
+                                  Map<String, String> namesByStateToken,
+                                  List<ResourcePackManifestEntry> manifest) {
         public SessionBaseline {
-            hashes = Set.copyOf(hashes);
-            namesByHash = Map.copyOf(namesByHash);
+            orderedStateTokens = List.copyOf(orderedStateTokens);
+            namesByStateToken = Map.copyOf(namesByStateToken);
+            manifest = List.copyOf(manifest);
         }
+        public List<String> orderedHashes() { return orderedStateTokens; }
+        public List<String> hashes() { return orderedStateTokens; }
+        public Map<String, String> namesByHash() { return namesByStateToken; }
     }
 }

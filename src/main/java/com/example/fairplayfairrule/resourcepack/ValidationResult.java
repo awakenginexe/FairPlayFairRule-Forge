@@ -1,50 +1,56 @@
 package com.example.fairplayfairrule.resourcepack;
 
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** Immutable result used by both join policy and locked-session validation. */
+/** Immutable policy result containing only bounded, path-free evidence. */
 public final class ValidationResult {
-    private final boolean valid;
-    private final ValidationFailureCode code;
-    private final String message;
-    private final Set<String> activeHashes;
-    private final Map<String, String> namesByHash;
+    private final ResourcePackViolation violation;
+    private final List<String> orderedStateTokens;
+    private final Map<String, String> namesByStateToken;
+    private final List<ResourcePackManifestEntry> normalizedManifest;
 
-    private ValidationResult(boolean valid, ValidationFailureCode code, String message,
-                             Set<String> activeHashes, Map<String, String> namesByHash) {
-        this.valid = valid;
-        this.code = code;
-        this.message = message;
-        this.activeHashes = Set.copyOf(activeHashes);
-        this.namesByHash = Map.copyOf(namesByHash);
+    private ValidationResult(ResourcePackViolation violation, List<String> orderedStateTokens,
+                             Map<String, String> namesByStateToken,
+                             List<ResourcePackManifestEntry> normalizedManifest) {
+        this.violation = violation;
+        this.orderedStateTokens = List.copyOf(orderedStateTokens);
+        this.namesByStateToken = Map.copyOf(namesByStateToken);
+        this.normalizedManifest = List.copyOf(normalizedManifest);
     }
 
-    public static ValidationResult valid(Set<String> activeHashes, Map<String, String> namesByHash) {
-        return new ValidationResult(true, ValidationFailureCode.NONE, "", activeHashes, namesByHash);
+    public static ValidationResult valid(List<String> state, Map<String, String> names,
+                                         List<ResourcePackManifestEntry> manifest) {
+        return new ValidationResult(null, state, names, manifest);
+    }
+
+    public static ValidationResult valid(Set<String> hashes, Map<String, String> names) {
+        return valid(List.copyOf(hashes), names, List.of());
+    }
+
+    public static ValidationResult invalid(ResourcePackViolation violation) {
+        return new ValidationResult(violation, List.of(), Map.of(), List.of());
+    }
+
+    public static ValidationResult invalid(ResourcePackViolation violation, List<String> state,
+                                           Map<String, String> names,
+                                           List<ResourcePackManifestEntry> manifest) {
+        return new ValidationResult(violation, state, names, manifest);
     }
 
     public static ValidationResult invalid(ValidationFailureCode code, String message) {
-        return new ValidationResult(false, code, message, Set.of(), Map.of());
+        return invalid(new ResourcePackViolation(code, message, "", "", "", List.of(), "", false));
     }
 
-    public boolean isValid() {
-        return valid;
-    }
-
-    public ValidationFailureCode code() {
-        return code;
-    }
-
-    public String message() {
-        return message;
-    }
-
-    public Set<String> activeHashes() {
-        return activeHashes;
-    }
-
-    public Map<String, String> namesByHash() {
-        return namesByHash;
-    }
+    public boolean isValid() { return violation == null; }
+    public ResourcePackViolation violation() { return violation; }
+    public ValidationFailureCode code() { return isValid() ? ValidationFailureCode.NONE : violation.code(); }
+    public String message() { return isValid() ? "" : violation.reason(); }
+    public List<String> orderedStateTokens() { return orderedStateTokens; }
+    public Map<String, String> namesByStateToken() { return namesByStateToken; }
+    public List<ResourcePackManifestEntry> normalizedManifest() { return normalizedManifest; }
+    public Set<String> activeHashes() { return Set.copyOf(new LinkedHashSet<>(orderedStateTokens)); }
+    public Map<String, String> namesByHash() { return namesByStateToken; }
 }

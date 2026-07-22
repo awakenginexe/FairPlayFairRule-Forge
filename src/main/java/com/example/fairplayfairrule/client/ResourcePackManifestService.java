@@ -4,6 +4,7 @@ import com.example.fairplayfairrule.resourcepack.ResourcePackHashService;
 import com.example.fairplayfairrule.resourcepack.ResourcePackLimits;
 import com.example.fairplayfairrule.resourcepack.ResourcePackManifestEntry;
 import com.example.fairplayfairrule.resourcepack.ResourcePackType;
+import com.example.fairplayfairrule.resourcepack.ModBundledIdentity;
 import net.minecraft.client.Minecraft;
 import net.minecraft.server.packs.repository.Pack;
 
@@ -58,6 +59,12 @@ public final class ResourcePackManifestService {
         ResourcePackType type = pack.type();
         if (type == ResourcePackType.BUILT_IN) {
             return new ResourcePackManifestEntry(name, "", 0, ResourcePackType.BUILT_IN);
+        }
+        if (type == ResourcePackType.MOD_BUNDLED) {
+            return ModBundledIdentity.isValid(pack.identity())
+                    ? new ResourcePackManifestEntry(name, "", 0,
+                    ResourcePackType.MOD_BUNDLED, pack.identity())
+                    : unresolved(name);
         }
         if (type == ResourcePackType.DIRECTORY) {
             return new ResourcePackManifestEntry(name, "", 0, ResourcePackType.DIRECTORY);

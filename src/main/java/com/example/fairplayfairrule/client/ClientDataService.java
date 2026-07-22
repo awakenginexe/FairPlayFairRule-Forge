@@ -12,19 +12,17 @@ import net.minecraftforge.fml.ModList;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /** Event-driven client collection with serialized off-thread ZIP hashing. */
 public final class ClientDataService {
     private static final ResourcePackManifestService MANIFEST_SERVICE =
             new ResourcePackManifestService(new ResourcePackHashService());
-    private static final ExecutorService HASH_EXECUTOR = Executors.newSingleThreadExecutor(runnable -> {
-        Thread thread = new Thread(runnable, "fairplay-resource-pack-hasher");
-        thread.setDaemon(true);
-        return thread;
-    });
+    private static ThreadPoolExecutor hashExecutor;
     private static CompletableFuture<Void> sendChain = CompletableFuture.completedFuture(null);
 
     private ClientDataService() {
@@ -57,7 +55,8 @@ public final class ClientDataService {
                                                    List<String> mods,
                                                    List<ResolvedResourcePack> selected,
                                                    ClientConnectionGuard connectionGuard) {
-        sendChain = sendChain.handle((ignored, failure) -> null).thenRunAsync(() -> {
+        try {
+            sendChain = sendChain.handle((ignored, failure) -> null).thenRunAsync(() -> {
             List<ResourcePackManifestEntry> manifest = MANIFEST_SERVICE.buildManifest(selected);
             ClientInfoPayload payload;
             try {
@@ -77,6 +76,29 @@ public final class ClientDataService {
                     FairPlayFairRule.LOGGER.debug("Discarded a stale client integrity report after connection change");
                 }
             });
-        }, HASH_EXECUTOR);
+            }, executor());
+        } catch (RejectedExecutionException exception) {
+            FairPlayFairRule.LOGGER.warn("Client resource-pack report queue is full; report skipped");
+        }
+    }
+
+    public static synchronized void onDisconnect() {
+        if (hashExecutor != null) {
+            hashExecutor.shutdownNow();
+            hashExecutor = null;
+        }
+        sendChain = CompletableFuture.completedFuture(null);
+    }
+
+    private static synchronized ThreadPoolExecutor executor() {
+        if (hashExecutor == null || hashExecutor.isShutdown()) {
+            hashExecutor = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS,
+                    new ArrayBlockingQueue<>(8), runnable -> {
+                        Thread thread = new Thread(runnable, "fairplay-resource-pack-hasher");
+                        thread.setDaemon(true);
+                        return thread;
+                    }, new ThreadPoolExecutor.AbortPolicy());
+        }
+        return hashExecutor;
     }
 }

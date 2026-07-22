@@ -19,7 +19,7 @@ public final class ResourcePackValidationCoordinator {
             }
 
             ValidationResult initial = policy.validateJoin(playerId, manifest);
-            if (initial.isValid()) {
+            if (initial.isValid() && policy.enabled()) {
                 sessions.storeValidated(playerId, initial);
                 return new FlowResult(initial, true);
             }

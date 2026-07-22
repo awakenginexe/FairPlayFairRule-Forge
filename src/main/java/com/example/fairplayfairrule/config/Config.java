@@ -2,6 +2,7 @@ package com.example.fairplayfairrule.config;
 
 import com.example.fairplayfairrule.FairPlayFairRule;
 import com.example.fairplayfairrule.resourcepack.ResourcePackPolicyService;
+import com.example.fairplayfairrule.server.ResourcePackPolicyLogSummary;
 import net.minecraftforge.common.ForgeConfigSpec;
 import net.minecraftforge.fml.ModLoadingContext;
 import net.minecraftforge.fml.config.ModConfig;
@@ -20,6 +21,8 @@ public class Config {
     // Discord Webhook URL for sending notifications
     public static final ForgeConfigSpec.ConfigValue<String> WEBHOOK_URL;
     public static final ForgeConfigSpec.BooleanValue HASTEBIN_MIRROR_ENABLED;
+    public static final ForgeConfigSpec.BooleanValue RESOURCE_PACK_INTEGRITY_ENABLED;
+    public static final ForgeConfigSpec.BooleanValue LOG_RESOURCE_PACK_VIOLATIONS;
 
     // List of banned mod IDs that will trigger auto-ban
     public static final ForgeConfigSpec.ConfigValue<List<? extends String>> BANNED_MOD_IDS;
@@ -28,10 +31,12 @@ public class Config {
     public static final ForgeConfigSpec.ConfigValue<List<? extends String>> GLOBAL_APPROVED_PACK_HASHES;
     public static final ForgeConfigSpec.ConfigValue<List<? extends String>> PLAYER_APPROVED_PACK_HASHES;
     public static final ForgeConfigSpec.ConfigValue<List<? extends String>> SERVER_DOWNLOADED_PACK_HASHES;
+    public static final ForgeConfigSpec.ConfigValue<List<? extends String>> BANNED_PACK_HASHES;
 
     private static final ForgeConfigSpec SPEC;
-    private static volatile ResourcePackPolicyService resourcePackPolicy = ResourcePackPolicyService.load(
-            List.of(), List.of(), List.of(), List.of()).policy();
+    private static final LastKnownGoodPolicy RESOURCE_PACK_POLICY = new LastKnownGoodPolicy(
+            ResourcePackPolicyService.load(false, List.of(), List.of(), List.of(), List.of(),
+                    List.of()).policy());
 
     static {
         BUILDER.push("General Settings");
@@ -45,6 +50,16 @@ public class Config {
                 .comment("Optionally mirror manifest text to Hastebin on a best-effort basis.",
                         "Discord attachments remain authoritative and are always attempted directly.")
                 .define("hastebinMirrorEnabled", false);
+
+        RESOURCE_PACK_INTEGRITY_ENABLED = BUILDER
+                .comment("Enforce resource-pack allowlists and lock policy-controlled packs for a session.",
+                        "Disabled by default for backward compatibility.")
+                .define("resourcePackIntegrityEnabled", false);
+
+        LOG_RESOURCE_PACK_VIOLATIONS = BUILDER
+                .comment("Send resource-pack integrity rejections to the configured Discord webhook.",
+                        "Disabling this never changes enforcement decisions.")
+                .define("logResourcePackViolations", true);
 
         BANNED_MOD_IDS = BUILDER
                 .comment("List of mod IDs that will trigger an automatic ban.",
@@ -73,6 +88,10 @@ public class Config {
                         "Downloaded packs are validated separately from user-provided optional packs.")
                 .defineList("serverDownloadedPackHashes", new ArrayList<>(), obj -> obj instanceof String);
 
+        BANNED_PACK_HASHES = BUILDER
+                .comment("Raw SHA-256 hashes that are rejected before every approval list.")
+                .defineList("bannedPackHashes", new ArrayList<>(), obj -> obj instanceof String);
+
         BUILDER.pop();
         SPEC = BUILDER.build();
     }
@@ -93,21 +112,30 @@ public class Config {
     }
 
     public static ResourcePackPolicyService getResourcePackPolicy() {
-        return resourcePackPolicy;
+        return RESOURCE_PACK_POLICY.current();
     }
 
     private static void refreshResourcePackPolicy() {
         ResourcePackPolicyService.PolicyLoadResult loaded = ResourcePackPolicyService.load(
+                RESOURCE_PACK_INTEGRITY_ENABLED.get(),
                 copy(REQUIRED_PACK_HASHES.get()),
                 copy(GLOBAL_APPROVED_PACK_HASHES.get()),
                 copy(PLAYER_APPROVED_PACK_HASHES.get()),
-                copy(SERVER_DOWNLOADED_PACK_HASHES.get()));
-        resourcePackPolicy = loaded.policy();
+                copy(SERVER_DOWNLOADED_PACK_HASHES.get()),
+                copy(BANNED_PACK_HASHES.get()));
         for (String error : loaded.errors()) {
-            FairPlayFairRule.LOGGER.error("Invalid resource-pack policy configuration: {}", error);
+            FairPlayFairRule.LOGGER.warn("Invalid resource-pack policy configuration: {}", error);
         }
-        FairPlayFairRule.LOGGER.info("Loaded resource-pack integrity policy with {} configuration error(s)",
-                loaded.errors().size());
+        if (!RESOURCE_PACK_POLICY.accept(loaded)) {
+            FairPlayFairRule.LOGGER.warn("Resource-pack policy reload rejected; retaining the last-known-good policy.");
+            return;
+        }
+        ResourcePackPolicyLogSummary summary = ResourcePackPolicyLogSummary.from(
+                loaded.policy(), loaded.errors().size());
+        FairPlayFairRule.LOGGER.info(summary.message());
+        if (summary.inactiveApprovalWarningRequired()) {
+            FairPlayFairRule.LOGGER.warn(summary.inactiveApprovalWarning());
+        }
     }
 
     private static List<String> copy(List<? extends String> values) {

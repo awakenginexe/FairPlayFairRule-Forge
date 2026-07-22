@@ -15,7 +15,7 @@ import java.util.function.Supplier;
 /** Forge 40 transport implementation for Minecraft 1.18.2. */
 public final class PacketHandler {
 
-    private static final String PROTOCOL_VERSION = "2";
+    private static final String PROTOCOL_VERSION = "3";
 
     public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             new ResourceLocation(FairPlayFairRule.MOD_ID, "main"),

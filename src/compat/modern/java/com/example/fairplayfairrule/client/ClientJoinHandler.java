@@ -28,4 +28,9 @@ public final class ClientJoinHandler {
             ClientDataService.collectAndSendData(ResourcePackReportType.JOIN);
         }
     }
+
+    @SubscribeEvent
+    public static void onClientPlayerLogout(ClientPlayerNetworkEvent.LoggingOut event) {
+        ClientDataService.onDisconnect();
+    }
 }
