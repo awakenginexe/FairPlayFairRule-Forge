@@ -63,4 +63,16 @@ class AuthenticatedPackSessionsTest {
         sessions.clearAll();
         assertEquals(0, sessions.size());
     }
+
+    @Test
+    void serverPackBootstrapWindowCanBeCompletedOnlyByOwningConnection() {
+        Object connection = new Object();
+        ValidationResult valid = policy.validateJoin(PLAYER, List.of(
+                new ResourcePackManifestEntry("good.zip", A, 3, ResourcePackType.ZIP)));
+        assertTrue(sessions.establish(PLAYER, connection, valid, policy, true));
+        assertTrue(sessions.connection(PLAYER, connection).serverPackBootstrapAllowed());
+        assertFalse(sessions.completeServerPackBootstrap(PLAYER, new Object(), valid));
+        assertTrue(sessions.completeServerPackBootstrap(PLAYER, connection, valid));
+        assertFalse(sessions.connection(PLAYER, connection).serverPackBootstrapAllowed());
+    }
 }

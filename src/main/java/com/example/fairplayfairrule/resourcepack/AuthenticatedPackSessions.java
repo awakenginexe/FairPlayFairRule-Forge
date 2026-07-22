@@ -11,6 +11,13 @@ public final class AuthenticatedPackSessions {
     public synchronized boolean establish(UUID playerId, Object connectionToken,
                                           ValidationResult validation,
                                           ResourcePackPolicyService policy) {
+        return establish(playerId, connectionToken, validation, policy, false);
+    }
+
+    public synchronized boolean establish(UUID playerId, Object connectionToken,
+                                          ValidationResult validation,
+                                          ResourcePackPolicyService policy,
+                                          boolean serverPackBootstrapAllowed) {
         if (playerId == null || connectionToken == null || validation == null || policy == null
                 || !validation.isValid() || !policy.enabled() || active.containsKey(playerId)) {
             return false;
@@ -18,17 +25,40 @@ public final class AuthenticatedPackSessions {
         PlayerPackSessionStore store = new PlayerPackSessionStore();
         store.storeValidated(playerId, validation);
         active.put(playerId, new Active(connectionToken,
-                store.get(playerId).orElseThrow(), policy));
+                store.get(playerId).orElseThrow(), policy, serverPackBootstrapAllowed));
         return true;
     }
 
     public synchronized ConnectionState connection(UUID playerId, Object connectionToken) {
         Active existing = playerId == null ? null : active.get(playerId);
-        if (existing == null) return new ConnectionState(Status.BEFORE_BASELINE, null, null);
+        if (existing == null) return new ConnectionState(Status.BEFORE_BASELINE, null, null, false);
         if (existing.connectionToken != connectionToken) {
-            return new ConnectionState(Status.WRONG_CONNECTION, null, null);
+            return new ConnectionState(Status.WRONG_CONNECTION, null, null, false);
         }
-        return new ConnectionState(Status.ACTIVE, existing.baseline, existing.policy);
+        return new ConnectionState(Status.ACTIVE, existing.baseline, existing.policy,
+                existing.serverPackBootstrapAllowed);
+    }
+
+    public synchronized boolean completeServerPackBootstrap(UUID playerId, Object connectionToken,
+                                                             ValidationResult validation) {
+        Active existing = playerId == null ? null : active.get(playerId);
+        if (existing == null || existing.connectionToken != connectionToken
+                || !existing.serverPackBootstrapAllowed || validation == null
+                || !validation.isValid()) return false;
+        PlayerPackSessionStore store = new PlayerPackSessionStore();
+        store.storeValidated(playerId, validation);
+        active.put(playerId, new Active(connectionToken, store.get(playerId).orElseThrow(),
+                existing.policy, false));
+        return true;
+    }
+
+    public synchronized void consumeServerPackBootstrap(UUID playerId, Object connectionToken) {
+        Active existing = playerId == null ? null : active.get(playerId);
+        if (existing != null && existing.connectionToken == connectionToken
+                && existing.serverPackBootstrapAllowed) {
+            active.put(playerId, new Active(connectionToken, existing.baseline,
+                    existing.policy, false));
+        }
     }
 
     public synchronized void clear(UUID playerId, Object connectionToken) {
@@ -42,8 +72,10 @@ public final class AuthenticatedPackSessions {
     public enum Status { BEFORE_BASELINE, WRONG_CONNECTION, ACTIVE }
 
     public record ConnectionState(Status status, PlayerPackSessionStore.SessionBaseline baseline,
-                                  ResourcePackPolicyService policy) { }
+                                  ResourcePackPolicyService policy,
+                                  boolean serverPackBootstrapAllowed) { }
 
     private record Active(Object connectionToken, PlayerPackSessionStore.SessionBaseline baseline,
-                          ResourcePackPolicyService policy) { }
+                          ResourcePackPolicyService policy,
+                          boolean serverPackBootstrapAllowed) { }
 }

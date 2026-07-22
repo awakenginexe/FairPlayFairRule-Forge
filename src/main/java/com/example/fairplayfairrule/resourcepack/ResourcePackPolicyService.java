@@ -69,6 +69,7 @@ public final class ResourcePackPolicyService {
     }
     public int serverDownloadedCount() { return serverDownloaded.size(); }
     public int bannedCount() { return banned.size(); }
+    public boolean hasServerDownloadedApprovals() { return !serverDownloaded.isEmpty(); }
 
     public ValidationResult validateJoin(UUID authenticatedPlayer,
                                          List<ResourcePackManifestEntry> manifest) {
@@ -184,6 +185,46 @@ public final class ResourcePackPolicyService {
         return rejected(inspection, violation(ValidationFailureCode.SESSION_STATE_CHANGED,
                 sessionChangedMessage(), "", "", "", List.of(),
                 "Multiple policy-controlled pack changes detected.", true));
+    }
+
+    /** Allows only one new approved server-downloaded entry after an advertised pack applies. */
+    public Optional<ValidationResult> validateInitialServerPack(
+            PlayerPackSessionStore.SessionBaseline baseline,
+            List<ResourcePackManifestEntry> manifest) {
+        Inspection inspection = inspect(manifest, true);
+        if (inspection.failure != null) return Optional.of(inspection.failure);
+        List<String> expected = baseline.orderedStateTokens();
+        List<NormalizedEntry> added = new ArrayList<>();
+        int expectedIndex = 0;
+        for (NormalizedEntry entry : inspection.enforcedEntries) {
+            if (expectedIndex < expected.size()
+                    && expected.get(expectedIndex).equals(entry.hash)) {
+                expectedIndex++;
+            } else {
+                added.add(entry);
+            }
+        }
+        if (expectedIndex != expected.size() || added.size() != 1
+                || added.get(0).type != ResourcePackType.SERVER_DOWNLOADED) {
+            return Optional.empty();
+        }
+        NormalizedEntry entry = added.get(0);
+        if (banned.contains(entry.hash)) {
+            return Optional.of(rejected(inspection, violation(ValidationFailureCode.BANNED_PACK,
+                    "Resource pack verification failed.\n\nExplicitly banned server resource pack detected:\n"
+                            + entry.name + "\n\nSHA-256:\n" + entry.hash,
+                    entry.name, "", entry.hash, List.of(),
+                    "Advertised server pack is explicitly banned.", true)));
+        }
+        if (!serverDownloaded.contains(entry.hash)) {
+            return Optional.of(rejected(inspection, violation(
+                    ValidationFailureCode.UNAPPROVED_SERVER_PACK,
+                    "Resource pack verification failed.\n\nUnexpected server-downloaded resource pack:\n"
+                            + entry.name + "\n\nSHA-256:\n" + entry.hash,
+                    entry.name, "", entry.hash, List.of(),
+                    "Advertised server pack is not approved.", true)));
+        }
+        return Optional.of(inspection.validResult());
     }
 
     private static Inspection inspect(List<ResourcePackManifestEntry> manifest, boolean hashesRequired) {

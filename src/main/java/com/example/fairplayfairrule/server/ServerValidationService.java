@@ -2,6 +2,7 @@ package com.example.fairplayfairrule.server;
 
 import com.example.fairplayfairrule.FairPlayFairRule;
 import com.example.fairplayfairrule.compat.TextComponents;
+import com.example.fairplayfairrule.compat.ServerResourcePackCompatibility;
 import com.example.fairplayfairrule.config.Config;
 import com.example.fairplayfairrule.network.ClientInfoPayload;
 import com.example.fairplayfairrule.network.ResourcePackReportType;
@@ -9,6 +10,7 @@ import com.example.fairplayfairrule.resourcepack.AuthenticatedPackSessions;
 import com.example.fairplayfairrule.resourcepack.ResourcePackManifestEntry;
 import com.example.fairplayfairrule.resourcepack.ResourcePackPolicyService;
 import com.example.fairplayfairrule.resourcepack.ResourcePackViolation;
+import com.example.fairplayfairrule.resourcepack.ResourcePackType;
 import com.example.fairplayfairrule.resourcepack.ValidationFailureCode;
 import com.example.fairplayfairrule.resourcepack.ValidationResult;
 import net.minecraft.server.level.ServerPlayer;
@@ -48,8 +50,12 @@ public final class ServerValidationService {
         if (payload.reportType() == ResourcePackReportType.JOIN) {
             validation = policy.validateJoin(playerId, payload.resourcePacks());
             if (validation.isValid() && policy.enabled()) {
+                boolean alreadyHasServerPack = validation.normalizedManifest().stream()
+                        .anyMatch(entry -> entry.type() == ResourcePackType.SERVER_DOWNLOADED);
+                boolean bootstrap = policy.hasServerDownloadedApprovals()
+                        && !alreadyHasServerPack && serverPackAdvertised(player);
                 baselineEstablished = PACK_SESSIONS.establish(
-                        playerId, connectionToken, validation, policy);
+                        playerId, connectionToken, validation, policy, bootstrap);
                 if (!baselineEstablished) {
                     validation = ValidationResult.invalid(new ResourcePackViolation(
                             ValidationFailureCode.SESSION_STATE_CHANGED,
@@ -77,6 +83,19 @@ public final class ServerValidationService {
             } else {
                 validation = session.policy().validateRuntime(
                         session.baseline(), payload.resourcePacks());
+                if (validation.isValid()) {
+                    PACK_SESSIONS.consumeServerPackBootstrap(playerId, connectionToken);
+                } else if (session.serverPackBootstrapAllowed()) {
+                    var bootstrap = session.policy().validateInitialServerPack(
+                            session.baseline(), payload.resourcePacks());
+                    if (bootstrap.isPresent()) {
+                        validation = bootstrap.get();
+                        if (validation.isValid()) {
+                            PACK_SESSIONS.completeServerPackBootstrap(
+                                    playerId, connectionToken, validation);
+                        }
+                    }
+                }
             }
         }
 
@@ -108,6 +127,14 @@ public final class ServerValidationService {
     }
 
     public static void onServerStopped() { PACK_SESSIONS.clearAll(); }
+
+    private static boolean serverPackAdvertised(ServerPlayer player) {
+        try {
+            return ServerResourcePackCompatibility.isAdvertised(player.getServer());
+        } catch (RuntimeException | LinkageError exception) {
+            return false;
+        }
+    }
 
     private static String findBannedMod(List<String> clientMods) {
         List<? extends String> bannedModIds = Config.BANNED_MOD_IDS.get();

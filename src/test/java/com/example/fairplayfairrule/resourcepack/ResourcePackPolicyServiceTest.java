@@ -71,6 +71,28 @@ class ResourcePackPolicyServiceTest {
     }
 
     @Test
+    void permitsOnlyOneApprovedServerDownloadedBootstrapCandidate() {
+        ResourcePackPolicyService policy = ResourcePackPolicyService.load(true,
+                List.of(), List.of(REQUIRED), List.of(), List.of(SERVER), List.of(UNKNOWN)).policy();
+        ValidationResult joined = policy.validateJoin(PLAYER, List.of(zip("local.zip", REQUIRED)));
+        PlayerPackSessionStore store = new PlayerPackSessionStore();
+        store.storeValidated(PLAYER, joined);
+        var baseline = store.get(PLAYER).orElseThrow();
+
+        assertTrue(policy.validateInitialServerPack(baseline, List.of(
+                zip("local.zip", REQUIRED), new ResourcePackManifestEntry(
+                        "server", SERVER, 10, ResourcePackType.SERVER_DOWNLOADED)))
+                .orElseThrow().isValid());
+        assertTrue(policy.validateInitialServerPack(baseline, List.of(
+                zip("local.zip", REQUIRED), zip("not-server.zip", SERVER))).isEmpty());
+        assertEquals(ValidationFailureCode.BANNED_PACK,
+                policy.validateInitialServerPack(baseline, List.of(
+                        zip("local.zip", REQUIRED), new ResourcePackManifestEntry(
+                                "banned", UNKNOWN, 10, ResourcePackType.SERVER_DOWNLOADED)))
+                        .orElseThrow().code());
+    }
+
+    @Test
     void acceptsRequiredSetWhenPresent() {
         ResourcePackPolicyService policy = policy(List.of(REQUIRED), List.of(), List.of(), List.of());
 

@@ -65,6 +65,12 @@ sourceSets {
             } else {
                 srcDir 'src/compat/command-modern/java'
             }
+
+            if (targetId == '1.18.2') {
+                srcDir 'src/compat/serverpack-legacy18/java'
+            } else {
+                srcDir 'src/compat/serverpack-modern/java'
+            }
         }
     }
 }
@@ -108,6 +114,12 @@ dependencies {
 
 tasks.named('test', Test).configure {
     useJUnitPlatform()
+    def isolatedTestTemp = layout.buildDirectory.dir('tmp/test-tmp')
+    doFirst {
+        def directory = isolatedTestTemp.get().asFile
+        directory.mkdirs()
+        systemProperty 'java.io.tmpdir', directory.absolutePath
+    }
 }
 
 tasks.withType(ProcessResources).configureEach {
