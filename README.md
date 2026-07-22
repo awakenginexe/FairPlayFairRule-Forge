@@ -40,11 +40,13 @@ FairPlayFairRule is a mod that must be installed on both the client and server t
 - Automatically re-validates after Minecraft resource reloads
 
 ### 🧾 Resource-Pack Integrity
-- Required, globally optional, per-player optional, and server-downloaded hash policies
-- Exact active hash-set session baseline established only after successful join validation
-- Active pack changes require reconnecting, even when a newly enabled pack is otherwise approved
-- Unsupported directory and unresolved custom packs fail closed
-- Unchanged ZIP files reuse a path/size/last-modified SHA-256 cache
+- Disabled by default for backward compatibility; banned-mod checks remain active
+- Required, globally optional, per-player optional, server-downloaded, and explicitly banned hash policies
+- Exact ordered policy-controlled baseline established only after successful initial validation
+- Added, removed, modified, replaced, or reordered custom/server-downloaded packs require reconnecting
+- Trusted Minecraft built-ins and proven Forge/mod-bundled resources are diagnostic-only and excluded from the baseline
+- User directory and unresolved packs fail closed whenever integrity or pack-ban enforcement requires hashes
+- Raw ZIP hashes use a bounded, identity-aware cache with mutation checks
 
 ### 🚫 Auto-Ban System
 - Server-side configuration for banned mod IDs
@@ -55,6 +57,7 @@ FairPlayFairRule is a mod that must be installed on both the client and server t
 - **Player Join Notification**: Basic join alert with player info
 - **Player Manifest**: Detailed mod and resource pack report attached directly as UTF-8 text
 - **Ban Notification**: High-priority alert when banned mods are detected
+- **Resource Pack Integrity Violation**: Red high-priority login/runtime rejection alert with authenticated identity and normalized evidence when safe
 - Manifest attachments are split on line boundaries at 9 MiB, up to five ordered parts and 45 MiB total
 - Optional Hastebin mirroring is disabled by default and never replaces or blocks Discord attachment delivery
 
@@ -73,7 +76,10 @@ FairPlayFairRule is a mod that must be installed on both the client and server t
    ["General Settings"]
    webhookUrl = "YOUR_DISCORD_WEBHOOK_URL_HERE"
    hastebinMirrorEnabled = false
+   resourcePackIntegrityEnabled = true
+   logResourcePackViolations = true
    bannedModIds = ["examplehackmod", "examplecheatmod"]
+   bannedPackHashes = ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
    requiredPackHashes = ["0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"]
    globalApprovedPackHashes = ["1111111111111111111111111111111111111111111111111111111111111111"]
    playerApprovedPackHashes = [
@@ -82,7 +88,7 @@ FairPlayFairRule is a mod that must be installed on both the client and server t
    ]
    serverDownloadedPackHashes = ["4444444444444444444444444444444444444444444444444444444444444444"]
    ```
-4. Save the file. Forge reloads the policy automatically; a full server restart is not required.
+4. Save the file. A valid Forge config reload atomically replaces the policy; a malformed or unsafe candidate is rejected and the last-known-good policy stays active.
 5. Have already-connected players reconnect so they receive a baseline under the new policy.
 
 ### Client Setup
@@ -96,13 +102,28 @@ The server configuration file (`config/fairplayfairrule-common.toml`) contains:
 
 - **webhookUrl**: Discord webhook URL for notifications (leave empty to disable)
 - **hastebinMirrorEnabled**: Optional best-effort Hastebin mirror; defaults to `false`
+- **resourcePackIntegrityEnabled**: Enforces custom/server-downloaded pack policy and session locking; defaults to `false`
+- **logResourcePackViolations**: Queues dedicated Discord violation alerts; defaults to `true` and never changes enforcement
 - **bannedModIds**: List of mod IDs that trigger automatic bans (case-insensitive)
+- **bannedPackHashes**: Explicitly rejected raw ZIP hashes; bans override every approval list
 - **requiredPackHashes**: Raw SHA-256 hashes every player must have active
 - **globalApprovedPackHashes**: Optional ZIP hashes allowed for every player
 - **playerApprovedPackHashes**: Bounded `UUID=SHA256` entries; repeat a UUID to approve multiple hashes
 - **serverDownloadedPackHashes**: Expected hashes for packs downloaded from the current server
 
-All hashes are normalized to lowercase before comparison and must be exactly 64 hexadecimal characters. Built-in Minecraft/Forge resources do not require allowlist entries. User directory packs are rejected; compress them as ZIP files before approval.
+All configured hashes are trimmed, normalized to lowercase, and must then be exactly 64 hexadecimal characters. Invalid characters are never stripped to manufacture a hash. Duplicate values, invalid UUIDs, and oversized lists make the candidate policy invalid, so the previous last-known-good snapshot remains active.
+
+With `resourcePackIntegrityEnabled = false`, custom approval lists are inactive, no custom-pack session baseline is created, and empty approval lists do not cause an integrity violation. A concise warning is logged if inactive approval entries exist. Explicit pack bans still take precedence and banned-mod behavior remains active.
+
+With `resourcePackIntegrityEnabled = true`, an empty approval policy is intentionally strict: no user-controlled ZIP is accepted. Exact trusted Minecraft built-ins and proven Forge/mod-bundled resources remain diagnostic-only. User ZIPs named `vanilla.zip`, `mod_resources.zip`, `Forge Mods.zip`, or `Programmer Art.zip` are still user packs. Directory packs and active packs whose backing identity cannot be proven are rejected.
+
+Every successful startup/reload logs a bounded summary such as:
+
+```text
+Resource-pack integrity policy loaded: enabled=true, required=1, global=1, per-player=2, server-downloaded=1, banned=1, errors=0
+```
+
+Connected sessions retain the policy and exact ordered baseline accepted when they joined. Policy reloads apply to future connections. Any policy-controlled pack change—including reordering to another globally approved ZIP—requires reconnecting. Trusted built-in or mod-bundled diagnostic profile changes do not alter that baseline.
 
 ### Administrator Resource-Pack Hash Workflow
 
@@ -129,10 +150,24 @@ The server cannot infer which custom ZIPs an administrator intends to approve. H
 
 4. The command prints the file name, byte size, lowercase raw SHA-256, and a copy-ready quoted hash-list entry. With a UUID it also prints a copy-ready `UUID=SHA256` entry.
 5. Paste the quoted hash into `requiredPackHashes`, `globalApprovedPackHashes`, or `serverDownloadedPackHashes`. Paste the `UUID=SHA256` value into `playerApprovedPackHashes`.
-6. Save `config/fairplayfairrule-common.toml` and check the server log for `Loaded resource-pack integrity policy with 0 configuration error(s)`.
+6. Save `config/fairplayfairrule-common.toml` and check the server log for the sanitized `Resource-pack integrity policy loaded:` summary.
 7. Have affected connected players reconnect. Saving reloads the allowlist automatically, but an existing player's validated session baseline remains locked until reconnect.
 
 The command never edits the TOML file, scans the directory, accepts uploads, or accepts an arbitrary filesystem path. Hashing runs on one bounded background worker and that worker is stopped with the server lifecycle.
+
+You can independently calculate the same raw whole-file SHA-256 without starting Minecraft.
+
+PowerShell:
+
+```powershell
+(Get-FileHash -Algorithm SHA256 -LiteralPath '.\Faithful 32x.zip').Hash.ToLowerInvariant()
+```
+
+Linux:
+
+```bash
+sha256sum -- 'Faithful 32x.zip'
+```
 
 ## Technical Details
 
@@ -149,13 +184,21 @@ The command never edits the TOML file, scans the directory, accepts uploads, or 
 - Forge 43-47 legacy SimpleChannel transport for 1.19.2 through 1.20.1
 - Forge 48-49 channel transport for 1.20.2 and 1.20.4
 - Forge 50-52 payload-aware channel transport for 1.20.6 and 1.21.1
-- A strict protocol-2 `ClientInfoPacket` codec with bounded structured resource-pack manifests
+- A strict protocol-3 `ClientInfoPacket` codec with bounded structured resource-pack manifests
 
 ### External Services
 - **Discord Webhooks** for real-time summary notifications and complete UTF-8 manifest attachments
 - **Hastebin** (`https://hst.sh/`) as an optional best-effort mirror when `hastebinMirrorEnabled = true`
 
 Discord delivery uses safe UUID/timestamp filenames and suppresses all allowed mentions. Manifests up to 9 MiB use one `.txt` attachment. Larger manifests are split at existing UTF-8 line boundaries into numbered parts of at most 9 MiB each; concatenating the parts in order reconstructs the original bytes. At most five parts and 45 MiB total are accepted. Beyond that bound, Discord receives the normal summary with a clear attachment error and no manifest or mirror upload is attempted.
+
+Structurally valid rejected resource-pack manifests use the same attachment limits. Malformed, oversized, or unsafe reports generate summary-only alerts and arbitrary raw packet bytes are never echoed. Identical Discord-only alerts are suppressed for 30 seconds per authenticated UUID, phase, violation code, and received identity; enforcement still runs every time.
+
+Enabling Hastebin sends a best-effort copy of manifest/evidence text to a public third-party service. Review that privacy tradeoff before opting in. When disabled, no Hastebin request or wait is created.
+
+## Integrity limitations
+
+FPFR is a cooperative client/server integrity and compliance tool, not undefeatable anti-cheat. It can detect and enforce the state reported by a correctly running client using narrowly classified pack sources, raw ZIP hashes, authenticated server UUIDs, and connection-bound session baselines. A hostile client or modified runtime can falsify client-originated reporting; use server-side controls and moderation appropriate to your threat model.
 
 ## Building from Source
 
