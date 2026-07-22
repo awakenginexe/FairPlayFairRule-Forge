@@ -42,6 +42,17 @@ class ResourcePackPolicyServiceTest {
     }
 
     @Test
+    void trustedLookingUserZipNamesRemainUnapprovedUserPacks() {
+        ResourcePackPolicyService policy = ResourcePackPolicyService.load(true,
+                List.of(), List.of(), List.of(), List.of(), List.of()).policy();
+        for (String name : List.of("vanilla.zip", "mod_resources.zip", "Forge Mods.zip",
+                "Programmer Art.zip")) {
+            assertEquals(ValidationFailureCode.UNAPPROVED_PACK,
+                    policy.validateJoin(PLAYER, List.of(zip(name, REQUIRED))).code());
+        }
+    }
+
+    @Test
     void bannedHashOverridesEveryApproval() {
         ResourcePackPolicyService policy = ResourcePackPolicyService.load(true,
                 List.of(REQUIRED), List.of(REQUIRED), List.of(PLAYER + "=" + REQUIRED),
