@@ -18,6 +18,59 @@ class ResourcePackPolicyServiceTest {
     private static final String SERVER = "f".repeat(64);
 
     @Test
+    void disabledIntegrityAllowsDiagnosticCustomEntriesAndCreatesNoLockingState() {
+        ResourcePackPolicyService policy = ResourcePackPolicyService.load(false,
+                List.of(), List.of(), List.of(), List.of(), List.of()).policy();
+        ValidationResult result = policy.validateJoin(PLAYER, List.of(
+                new ResourcePackManifestEntry("plain.zip", "", 10, ResourcePackType.ZIP),
+                new ResourcePackManifestEntry("development", "", 0, ResourcePackType.DIRECTORY),
+                new ResourcePackManifestEntry("unknown", "", 0, ResourcePackType.UNRESOLVED)));
+        assertTrue(result.isValid());
+        assertTrue(result.orderedStateTokens().isEmpty());
+    }
+
+    @Test
+    void enabledEmptyPolicyRejectsCustomButAllowsTrustedDiagnosticPacks() {
+        ResourcePackPolicyService policy = ResourcePackPolicyService.load(true,
+                List.of(), List.of(), List.of(), List.of(), List.of()).policy();
+        assertEquals(ValidationFailureCode.UNAPPROVED_PACK,
+                policy.validateJoin(PLAYER, List.of(zip("vanilla.zip", REQUIRED))).code());
+        assertTrue(policy.validateJoin(PLAYER, List.of(
+                new ResourcePackManifestEntry("vanilla", "", 0, ResourcePackType.BUILT_IN),
+                new ResourcePackManifestEntry("Forge Mods", "", 0, ResourcePackType.MOD_BUNDLED,
+                        ModBundledIdentity.fromTrustedProfileKey("forge:aggregate")))).isValid());
+    }
+
+    @Test
+    void bannedHashOverridesEveryApproval() {
+        ResourcePackPolicyService policy = ResourcePackPolicyService.load(true,
+                List.of(REQUIRED), List.of(REQUIRED), List.of(PLAYER + "=" + REQUIRED),
+                List.of(REQUIRED), List.of(REQUIRED)).policy();
+        assertEquals(ValidationFailureCode.BANNED_PACK,
+                policy.validateJoin(PLAYER, List.of(zip("banned.zip", REQUIRED))).code());
+    }
+
+    @Test
+    void exactOrderedCustomAndServerBaselineDetectsReordering() {
+        ResourcePackPolicyService policy = ResourcePackPolicyService.load(true,
+                List.of(), List.of(REQUIRED, GLOBAL), List.of(), List.of(SERVER), List.of()).policy();
+        ValidationResult joined = policy.validateJoin(PLAYER, List.of(
+                new ResourcePackManifestEntry("vanilla", "", 0, ResourcePackType.BUILT_IN),
+                zip("a.zip", REQUIRED),
+                new ResourcePackManifestEntry("server", SERVER, 10, ResourcePackType.SERVER_DOWNLOADED),
+                zip("b.zip", GLOBAL)));
+        assertTrue(joined.isValid());
+        assertEquals(List.of(REQUIRED, SERVER, GLOBAL), joined.orderedStateTokens());
+        PlayerPackSessionStore store = new PlayerPackSessionStore();
+        store.storeValidated(PLAYER, joined);
+        assertEquals(ValidationFailureCode.SESSION_PACK_ORDER_CHANGED,
+                policy.validateRuntime(store.get(PLAYER).orElseThrow(), List.of(
+                        zip("b.zip", GLOBAL), zip("a.zip", REQUIRED),
+                        new ResourcePackManifestEntry("server", SERVER, 10,
+                                ResourcePackType.SERVER_DOWNLOADED))).code());
+    }
+
+    @Test
     void acceptsRequiredSetWhenPresent() {
         ResourcePackPolicyService policy = policy(List.of(REQUIRED), List.of(), List.of(), List.of());
 
@@ -76,7 +129,7 @@ class ResourcePackPolicyServiceTest {
 
         ValidationResult result = policy.validateJoin(OTHER_PLAYER, List.of(zip("Private.zip", PLAYER_ONLY)));
 
-        assertEquals(ValidationFailureCode.UNAPPROVED_PACK, result.code());
+        assertEquals(ValidationFailureCode.WRONG_PLAYER_APPROVAL, result.code());
     }
 
     @Test
@@ -94,7 +147,7 @@ class ResourcePackPolicyServiceTest {
         assertEquals(3, loaded.errors().size());
         assertTrue(loaded.errors().stream().anyMatch(error -> error.contains("UUID")));
         assertTrue(loaded.errors().stream().anyMatch(error -> error.contains("SHA-256")));
-        assertTrue(loaded.errors().stream().anyMatch(error -> error.contains("Duplicate")));
+        assertTrue(loaded.errors().stream().anyMatch(error -> error.toLowerCase().contains("duplicate")));
         assertTrue(loaded.policy().validateJoin(PLAYER, List.of(zip("Private.zip", PLAYER_ONLY))).isValid());
     }
 
@@ -162,7 +215,7 @@ class ResourcePackPolicyServiceTest {
     }
 
     @Test
-    void rejectsOversizedAndExactlyDuplicatedManifestEntries() {
+    void rejectsOversizedManifestAndAllowsRepeatedTrustedBuiltInDiagnostics() {
         ResourcePackPolicyService policy = policy(List.of(), List.of(), List.of(), List.of());
         ResourcePackManifestEntry vanilla = new ResourcePackManifestEntry(
                 "Vanilla", "", 0, ResourcePackType.BUILT_IN);
@@ -171,9 +224,8 @@ class ResourcePackPolicyServiceTest {
         ValidationResult oversized = policy.validateJoin(PLAYER, java.util.Collections.nCopies(
                 ResourcePackLimits.MAX_MANIFEST_ENTRIES + 1, vanilla));
 
-        assertEquals(ValidationFailureCode.MALFORMED_MANIFEST, duplicate.code());
-        assertTrue(duplicate.message().contains("Duplicate"));
-        assertEquals(ValidationFailureCode.MALFORMED_MANIFEST, oversized.code());
+        assertTrue(duplicate.isValid());
+        assertEquals(ValidationFailureCode.OVERSIZED_MANIFEST, oversized.code());
         assertTrue(oversized.message().contains("oversized"));
     }
 

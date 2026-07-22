@@ -3,7 +3,6 @@ package com.example.fairplayfairrule.resourcepack;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -26,7 +25,7 @@ class PlayerPackSessionStoreTest {
 
         store.storeValidated(PLAYER, valid);
         PlayerPackSessionStore.SessionBaseline baseline = store.get(PLAYER).orElseThrow();
-        assertEquals(Set.of(FIRST), baseline.hashes());
+        assertEquals(List.of(FIRST), baseline.hashes());
         assertThrows(UnsupportedOperationException.class, () -> baseline.hashes().add(SECOND));
 
         store.clear(PLAYER);
@@ -34,7 +33,7 @@ class PlayerPackSessionStoreTest {
     }
 
     @Test
-    void acceptsUnchangedExactHashSetRegardlessOfOrder() {
+    void rejectsChangedExactHashOrder() {
         ResourcePackPolicyService policy = policy(FIRST, SECOND);
         ValidationResult join = policy.validateJoin(PLAYER, List.of(
                 zip("First.zip", FIRST), zip("Second.zip", SECOND)));
@@ -44,7 +43,7 @@ class PlayerPackSessionStoreTest {
         ValidationResult runtime = policy.validateRuntime(store.get(PLAYER).orElseThrow(), List.of(
                 zip("Second renamed.zip", SECOND), zip("First renamed.zip", FIRST)));
 
-        assertTrue(runtime.isValid());
+        assertEquals(ValidationFailureCode.SESSION_PACK_ORDER_CHANGED, runtime.code());
     }
 
     @Test

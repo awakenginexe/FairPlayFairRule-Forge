@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
+import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
@@ -119,6 +120,38 @@ class ResourcePackHashServiceTest {
         String after = service.hash(pack).sha256();
 
         assertNotEquals(before, after);
+    }
+
+    @Test
+    void sameSizeSameTimestampReplacementDoesNotReuseCacheWhenFileIdentityIsAvailable() throws Exception {
+        Path pack = temporaryDirectory.resolve("pack.zip");
+        Files.write(pack, new byte[]{1, 2, 3, 4});
+        FileTime timestamp = Files.getLastModifiedTime(pack);
+        AtomicInteger reads = new AtomicInteger();
+        ResourcePackHashService service = countingService(reads);
+        String before = service.hash(pack).sha256();
+        Path replacement = temporaryDirectory.resolve("replacement.zip");
+        Files.write(replacement, new byte[]{4, 3, 2, 1});
+        Files.setLastModifiedTime(replacement, timestamp);
+        Files.move(replacement, pack, StandardCopyOption.REPLACE_EXISTING);
+        Files.setLastModifiedTime(pack, timestamp);
+
+        ResourcePackHashService.HashResult after = service.hash(pack);
+        assertFalse(after.cacheHit());
+        assertNotEquals(before, after.sha256());
+        assertEquals(2, reads.get());
+    }
+
+    @Test
+    void rejectsSymbolicLinksWhenSupported() throws Exception {
+        Path target = Files.write(temporaryDirectory.resolve("target.zip"), new byte[]{1});
+        Path link = temporaryDirectory.resolve("link.zip");
+        try {
+            Files.createSymbolicLink(link, target);
+            assertThrows(IOException.class, () -> new ResourcePackHashService().hash(link));
+        } catch (UnsupportedOperationException | java.nio.file.FileSystemException ignored) {
+            // Link behavior is exercised on filesystems where the test process may create one.
+        }
     }
 
     private static ResourcePackHashService countingService(AtomicInteger reads) {

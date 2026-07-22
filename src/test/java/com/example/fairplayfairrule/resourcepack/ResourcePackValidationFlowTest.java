@@ -34,7 +34,7 @@ class ResourcePackValidationFlowTest {
 
         assertTrue(result.validation().isValid());
         assertTrue(result.baselineEstablished());
-        assertEquals(java.util.Set.of(APPROVED), store.get(PLAYER).orElseThrow().hashes());
+        assertEquals(List.of(APPROVED), store.get(PLAYER).orElseThrow().hashes());
     }
 
     @Test
@@ -70,7 +70,7 @@ class ResourcePackValidationFlowTest {
 
         assertEquals(ValidationFailureCode.SESSION_PACK_MODIFIED, changed.validation().code());
         assertFalse(changed.baselineEstablished());
-        assertEquals(java.util.Set.of(APPROVED), store.get(PLAYER).orElseThrow().hashes());
+        assertEquals(List.of(APPROVED), store.get(PLAYER).orElseThrow().hashes());
     }
 
     private static ResourcePackPolicyService policy() {
