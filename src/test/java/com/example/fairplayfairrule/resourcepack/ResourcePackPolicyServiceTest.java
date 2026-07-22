@@ -71,7 +71,8 @@ class ResourcePackPolicyServiceTest {
                 new ResourcePackManifestEntry("server", SERVER, 10, ResourcePackType.SERVER_DOWNLOADED),
                 zip("b.zip", GLOBAL)));
         assertTrue(joined.isValid());
-        assertEquals(List.of(REQUIRED, SERVER, GLOBAL), joined.orderedStateTokens());
+        assertEquals(List.of("ZIP:" + REQUIRED, "SERVER_DOWNLOADED:" + SERVER,
+                "ZIP:" + GLOBAL), joined.orderedStateTokens());
         PlayerPackSessionStore store = new PlayerPackSessionStore();
         store.storeValidated(PLAYER, joined);
         assertEquals(ValidationFailureCode.SESSION_PACK_ORDER_CHANGED,
@@ -79,6 +80,22 @@ class ResourcePackPolicyServiceTest {
                         zip("b.zip", GLOBAL), zip("a.zip", REQUIRED),
                         new ResourcePackManifestEntry("server", SERVER, 10,
                                 ResourcePackType.SERVER_DOWNLOADED))).code());
+    }
+
+    @Test
+    void sessionIdentityIncludesPolicyControlledPackType() {
+        ResourcePackPolicyService policy = ResourcePackPolicyService.load(true,
+                List.of(), List.of(REQUIRED), List.of(), List.of(REQUIRED), List.of()).policy();
+        ValidationResult joined = policy.validateJoin(PLAYER, List.of(zip("same.zip", REQUIRED)));
+        PlayerPackSessionStore store = new PlayerPackSessionStore();
+        store.storeValidated(PLAYER, joined);
+
+        ValidationResult changedType = policy.validateRuntime(store.get(PLAYER).orElseThrow(), List.of(
+                new ResourcePackManifestEntry("same.zip", REQUIRED, 123,
+                        ResourcePackType.SERVER_DOWNLOADED)));
+
+        assertFalse(changedType.isValid());
+        assertEquals(ValidationFailureCode.SESSION_PACK_MODIFIED, changedType.code());
     }
 
     @Test

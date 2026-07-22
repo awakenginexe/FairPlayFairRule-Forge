@@ -154,12 +154,14 @@ public final class ResourcePackPolicyService {
         List<String> added = new ArrayList<>(received);
         expected.forEach(added::remove);
         if (removed.size() == 1 && added.size() == 1) {
-            String oldHash = removed.get(0);
-            String newHash = added.get(0);
-            String oldName = baseline.namesByStateToken().get(oldHash);
-            String newName = inspection.stateNames().get(newHash);
+            String oldToken = removed.get(0);
+            String newToken = added.get(0);
+            String oldHash = ValidationResult.hashFromStateToken(oldToken);
+            String newHash = ValidationResult.hashFromStateToken(newToken);
+            String oldName = baseline.namesByStateToken().get(oldToken);
+            String newName = inspection.stateNames().get(newToken);
             if (oldName != null && oldName.equals(newName)
-                    && expected.indexOf(oldHash) == received.indexOf(newHash)) {
+                    && expected.indexOf(oldToken) == received.indexOf(newToken)) {
                 return rejected(inspection, violation(ValidationFailureCode.SESSION_PACK_MODIFIED,
                         "Resource pack integrity check failed.\n\nModified or replaced resource pack:\n"
                                 + newName + "\n\nExpected:\n" + oldHash + "\n\nReceived:\n"
@@ -169,17 +171,19 @@ public final class ResourcePackPolicyService {
             }
         }
         if (!added.isEmpty() && removed.isEmpty()) {
-            String hash = added.get(0);
+            String token = added.get(0);
+            String hash = ValidationResult.hashFromStateToken(token);
             return rejected(inspection, violation(ValidationFailureCode.SESSION_PACK_ADDED,
                     sessionChangedMessage() + "\n\nReceived SHA-256:\n" + hash,
-                    inspection.stateNames().getOrDefault(hash, "Unknown resource pack"),
+                    inspection.stateNames().getOrDefault(token, "Unknown resource pack"),
                     "", hash, List.of(), "Pack added during session.", true));
         }
         if (!removed.isEmpty() && added.isEmpty()) {
-            String hash = removed.get(0);
+            String token = removed.get(0);
+            String hash = ValidationResult.hashFromStateToken(token);
             return rejected(inspection, violation(ValidationFailureCode.SESSION_PACK_REMOVED,
                     sessionChangedMessage() + "\n\nExpected SHA-256:\n" + hash,
-                    baseline.namesByStateToken().getOrDefault(hash, "Unknown resource pack"),
+                    baseline.namesByStateToken().getOrDefault(token, "Unknown resource pack"),
                     hash, "", List.of(), "Pack removed during session.", true));
         }
         return rejected(inspection, violation(ValidationFailureCode.SESSION_STATE_CHANGED,
@@ -198,7 +202,7 @@ public final class ResourcePackPolicyService {
         int expectedIndex = 0;
         for (NormalizedEntry entry : inspection.enforcedEntries) {
             if (expectedIndex < expected.size()
-                    && expected.get(expectedIndex).equals(entry.hash)) {
+                    && expected.get(expectedIndex).equals(entry.stateToken())) {
                 expectedIndex++;
             } else {
                 added.add(entry);
@@ -328,7 +332,7 @@ public final class ResourcePackPolicyService {
     }
 
     private static ValidationResult rejected(Inspection inspection, ResourcePackViolation violation) {
-        return ValidationResult.invalid(violation, inspection.hashes, inspection.names,
+        return ValidationResult.invalid(violation, inspection.stateTokens(), inspection.stateNames(),
                 inspection.normalized);
     }
 
@@ -407,16 +411,24 @@ public final class ResourcePackPolicyService {
         public boolean valid() { return errors.isEmpty(); }
     }
 
-    private record NormalizedEntry(String name, String hash, ResourcePackType type) { }
+    private record NormalizedEntry(String name, String hash, ResourcePackType type) {
+        private String stateToken() { return type.name() + ":" + hash; }
+    }
 
     private record Inspection(List<String> hashes, Map<String, String> names,
                               List<NormalizedEntry> enforcedEntries,
                               List<ResourcePackManifestEntry> normalized,
                               ValidationResult failure) {
-        private List<String> stateTokens() { return hashes; }
-        private Map<String, String> stateNames() { return names; }
+        private List<String> stateTokens() {
+            return enforcedEntries.stream().map(NormalizedEntry::stateToken).toList();
+        }
+        private Map<String, String> stateNames() {
+            Map<String, String> result = new LinkedHashMap<>();
+            enforcedEntries.forEach(entry -> result.put(entry.stateToken(), entry.name()));
+            return result;
+        }
         private ValidationResult validResult() {
-            return ValidationResult.valid(hashes, names, normalized);
+            return ValidationResult.valid(stateTokens(), stateNames(), normalized);
         }
         private ValidationResult validResultWithoutBaseline() {
             return ValidationResult.valid(List.of(), Map.of(), normalized);

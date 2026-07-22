@@ -3,6 +3,9 @@ package com.example.fairplayfairrule.network;
 import com.example.fairplayfairrule.resourcepack.ResourcePackLimits;
 import com.example.fairplayfairrule.resourcepack.ResourcePackManifestEntry;
 import com.example.fairplayfairrule.resourcepack.ResourcePackType;
+import com.example.fairplayfairrule.resourcepack.ValidationFailureCode;
+import io.netty.buffer.Unpooled;
+import net.minecraft.network.FriendlyByteBuf;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
@@ -66,6 +69,26 @@ class ClientInfoPayloadValidationTest {
     void rejectsUnknownReportAndPackNetworkIds() {
         assertThrows(IllegalArgumentException.class, () -> ResourcePackReportType.fromNetworkId(99));
         assertThrows(IllegalArgumentException.class, () -> ClientInfoPayloadCodec.packTypeFromNetworkId(99));
+    }
+
+    @Test
+    void boundedWireFailuresBecomeSafeAuthenticatedRejectionEvents() {
+        FriendlyByteBuf oversized = new FriendlyByteBuf(Unpooled.buffer());
+        oversized.writeByte(ResourcePackReportType.RELOAD.networkId());
+        oversized.writeVarInt(ClientInfoPayload.MAX_MOD_ENTRIES + 1);
+        var oversizedResult = ClientInfoPayloadCodec.decodeNetwork(oversized);
+        assertFalse(oversizedResult.isValid());
+        assertEquals(ResourcePackReportType.RELOAD, oversizedResult.reportType());
+        assertEquals(ValidationFailureCode.OVERSIZED_MANIFEST, oversizedResult.failureCode());
+
+        FriendlyByteBuf malformed = new FriendlyByteBuf(Unpooled.buffer());
+        malformed.writeByte(ResourcePackReportType.JOIN.networkId());
+        malformed.writeVarInt(1);
+        var malformedResult = ClientInfoPayloadCodec.decodeNetwork(malformed);
+        assertFalse(malformedResult.isValid());
+        assertEquals(ResourcePackReportType.JOIN, malformedResult.reportType());
+        assertEquals(ValidationFailureCode.MALFORMED_MANIFEST, malformedResult.failureCode());
+        assertNull(malformedResult.payload());
     }
 
     @Test

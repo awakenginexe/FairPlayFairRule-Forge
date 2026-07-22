@@ -51,6 +51,19 @@ public final class ValidationResult {
     public List<String> orderedStateTokens() { return orderedStateTokens; }
     public Map<String, String> namesByStateToken() { return namesByStateToken; }
     public List<ResourcePackManifestEntry> normalizedManifest() { return normalizedManifest; }
-    public Set<String> activeHashes() { return Set.copyOf(new LinkedHashSet<>(orderedStateTokens)); }
-    public Map<String, String> namesByHash() { return namesByStateToken; }
+    public Set<String> activeHashes() {
+        LinkedHashSet<String> hashes = new LinkedHashSet<>();
+        orderedStateTokens.forEach(token -> hashes.add(hashFromStateToken(token)));
+        return Set.copyOf(hashes);
+    }
+    public Map<String, String> namesByHash() {
+        java.util.LinkedHashMap<String, String> names = new java.util.LinkedHashMap<>();
+        namesByStateToken.forEach((token, name) -> names.put(hashFromStateToken(token), name));
+        return Map.copyOf(names);
+    }
+
+    static String hashFromStateToken(String token) {
+        int separator = token.indexOf(':');
+        return separator < 0 ? token : token.substring(separator + 1);
+    }
 }

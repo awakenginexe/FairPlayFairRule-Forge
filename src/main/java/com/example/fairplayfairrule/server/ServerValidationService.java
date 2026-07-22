@@ -9,6 +9,7 @@ import com.example.fairplayfairrule.network.ResourcePackReportType;
 import com.example.fairplayfairrule.resourcepack.AuthenticatedPackSessions;
 import com.example.fairplayfairrule.resourcepack.ResourcePackManifestEntry;
 import com.example.fairplayfairrule.resourcepack.ResourcePackPolicyService;
+import com.example.fairplayfairrule.resourcepack.ResourcePackReportCoordinator;
 import com.example.fairplayfairrule.resourcepack.ResourcePackViolation;
 import com.example.fairplayfairrule.resourcepack.ResourcePackType;
 import com.example.fairplayfairrule.resourcepack.ValidationFailureCode;
@@ -46,57 +47,28 @@ public final class ServerValidationService {
 
         ResourcePackPolicyService policy = Config.getResourcePackPolicy();
         ValidationResult validation;
-        boolean baselineEstablished = false;
+        boolean baselineEstablished;
         if (payload.reportType() == ResourcePackReportType.JOIN) {
-            validation = policy.validateJoin(playerId, payload.resourcePacks());
-            if (validation.isValid() && policy.enabled()) {
-                boolean alreadyHasServerPack = validation.normalizedManifest().stream()
-                        .anyMatch(entry -> entry.type() == ResourcePackType.SERVER_DOWNLOADED);
-                boolean bootstrap = policy.hasServerDownloadedApprovals()
-                        && !alreadyHasServerPack && serverPackAdvertised(player);
-                baselineEstablished = PACK_SESSIONS.establish(
-                        playerId, connectionToken, validation, policy, bootstrap);
-                if (!baselineEstablished) {
-                    validation = ValidationResult.invalid(new ResourcePackViolation(
-                            ValidationFailureCode.SESSION_STATE_CHANGED,
-                            "Resource pack verification failed.\n\nAnother connection already owns "
-                                    + "the authenticated resource-pack session.",
-                            "", "", "", List.of(),
-                            "Overlapping authenticated connection.", false));
-                }
-            }
+            boolean alreadyHasServerPack = payload.resourcePacks().stream()
+                    .anyMatch(entry -> entry.type() == ResourcePackType.SERVER_DOWNLOADED);
+            boolean bootstrap = policy.enabled() && policy.hasServerDownloadedApprovals()
+                    && !alreadyHasServerPack && serverPackAdvertised(player);
+            ResourcePackReportCoordinator.Outcome outcome = ResourcePackReportCoordinator.join(
+                    policy, PACK_SESSIONS, playerId, connectionToken,
+                    payload.resourcePacks(), bootstrap);
+            validation = outcome.validation();
+            baselineEstablished = outcome.baselineEstablished();
         } else {
-            AuthenticatedPackSessions.ConnectionState session =
-                    PACK_SESSIONS.connection(playerId, connectionToken);
-            if (session.status() == AuthenticatedPackSessions.Status.BEFORE_BASELINE) {
+            ResourcePackReportCoordinator.Outcome outcome = ResourcePackReportCoordinator.reload(
+                    PACK_SESSIONS, playerId, connectionToken, payload.resourcePacks());
+            if (outcome.ignored()) {
                 FairPlayFairRule.LOGGER.debug(
                         "Ignored runtime resource-pack report before a validated baseline for UUID {}",
                         playerId);
                 return;
             }
-            if (session.status() == AuthenticatedPackSessions.Status.WRONG_CONNECTION) {
-                validation = ValidationResult.invalid(new ResourcePackViolation(
-                        ValidationFailureCode.SESSION_STATE_CHANGED,
-                        "Resource pack verification failed.\n\nThis connection does not own the "
-                                + "authenticated resource-pack session.",
-                        "", "", "", List.of(), "Stale connection report.", false));
-            } else {
-                validation = session.policy().validateRuntime(
-                        session.baseline(), payload.resourcePacks());
-                if (validation.isValid()) {
-                    PACK_SESSIONS.consumeServerPackBootstrap(playerId, connectionToken);
-                } else if (session.serverPackBootstrapAllowed()) {
-                    var bootstrap = session.policy().validateInitialServerPack(
-                            session.baseline(), payload.resourcePacks());
-                    if (bootstrap.isPresent()) {
-                        validation = bootstrap.get();
-                        if (validation.isValid()) {
-                            PACK_SESSIONS.completeServerPackBootstrap(
-                                    playerId, connectionToken, validation);
-                        }
-                    }
-                }
-            }
+            validation = outcome.validation();
+            baselineEstablished = false;
         }
 
         if (!validation.isValid()) {
@@ -127,6 +99,35 @@ public final class ServerValidationService {
     }
 
     public static void onServerStopped() { PACK_SESSIONS.clearAll(); }
+
+    /** Handles bounded decoder failures without retaining or echoing untrusted wire bytes. */
+    public static void rejectMalformed(ServerPlayer player, ResourcePackReportType reportType,
+                                       ValidationFailureCode code) {
+        ResourcePackReportType phaseType = reportType == null ? ResourcePackReportType.JOIN : reportType;
+        if (phaseType == ResourcePackReportType.RELOAD
+                && PACK_SESSIONS.connection(player.getUUID(), player.connection).status()
+                == AuthenticatedPackSessions.Status.BEFORE_BASELINE) {
+            FairPlayFairRule.LOGGER.debug(
+                    "Ignored malformed runtime resource-pack report before baseline for UUID {}",
+                    player.getUUID());
+            return;
+        }
+        String detail = code == ValidationFailureCode.OVERSIZED_MANIFEST
+                ? "The client report exceeded a bounded entry limit."
+                : "The client report could not be decoded safely.";
+        ValidationResult validation = ValidationResult.invalid(new ResourcePackViolation(code,
+                "Resource pack verification failed.\n\n" + detail,
+                "", "", "", List.of(), detail, false));
+        FairPlayFairRule.LOGGER.warn(
+                "Resource-pack integrity rejection for authenticated UUID {} during {} ({})",
+                player.getUUID(), phaseType, code);
+        player.connection.disconnect(TextComponents.literal(validation.message()));
+        DiscordWebhookService.sendResourcePackViolation(player, null,
+                phaseType == ResourcePackReportType.JOIN
+                        ? ResourcePackViolationPhase.LOGIN
+                        : ResourcePackViolationPhase.RUNTIME_RELOAD,
+                validation);
+    }
 
     private static boolean serverPackAdvertised(ServerPlayer player) {
         try {

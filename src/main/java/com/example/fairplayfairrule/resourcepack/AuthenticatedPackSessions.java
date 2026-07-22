@@ -29,6 +29,15 @@ public final class AuthenticatedPackSessions {
         return true;
     }
 
+    /** Binds a disabled-integrity connection only so configured bans remain enforceable. */
+    public synchronized boolean establishMonitoring(UUID playerId, Object connectionToken,
+                                                     ResourcePackPolicyService policy) {
+        if (playerId == null || connectionToken == null || policy == null || policy.enabled()
+                || !policy.requiresHashes() || active.containsKey(playerId)) return false;
+        active.put(playerId, new Active(connectionToken, null, policy, false));
+        return true;
+    }
+
     public synchronized ConnectionState connection(UUID playerId, Object connectionToken) {
         Active existing = playerId == null ? null : active.get(playerId);
         if (existing == null) return new ConnectionState(Status.BEFORE_BASELINE, null, null, false);
@@ -50,15 +59,6 @@ public final class AuthenticatedPackSessions {
         active.put(playerId, new Active(connectionToken, store.get(playerId).orElseThrow(),
                 existing.policy, false));
         return true;
-    }
-
-    public synchronized void consumeServerPackBootstrap(UUID playerId, Object connectionToken) {
-        Active existing = playerId == null ? null : active.get(playerId);
-        if (existing != null && existing.connectionToken == connectionToken
-                && existing.serverPackBootstrapAllowed) {
-            active.put(playerId, new Active(connectionToken, existing.baseline,
-                    existing.policy, false));
-        }
     }
 
     public synchronized void clear(UUID playerId, Object connectionToken) {

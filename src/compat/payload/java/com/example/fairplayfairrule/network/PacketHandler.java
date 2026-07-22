@@ -36,9 +36,16 @@ public final class PacketHandler {
 
     public static final class ClientInfoPacket {
         private final ClientInfoPayload payload;
+        private final ClientInfoPayloadCodec.NetworkDecodeResult decoded;
 
         public ClientInfoPacket(ClientInfoPayload payload) {
             this.payload = payload;
+            this.decoded = null;
+        }
+
+        private ClientInfoPacket(ClientInfoPayloadCodec.NetworkDecodeResult decoded) {
+            this.payload = decoded.payload();
+            this.decoded = decoded;
         }
 
         public static void encode(ClientInfoPacket packet, FriendlyByteBuf buf) {
@@ -46,14 +53,19 @@ public final class PacketHandler {
         }
 
         public static ClientInfoPacket decode(FriendlyByteBuf buf) {
-            return new ClientInfoPacket(ClientInfoPayloadCodec.decode(buf));
+            return new ClientInfoPacket(ClientInfoPayloadCodec.decodeNetwork(buf));
         }
 
         public static void handle(ClientInfoPacket packet, CustomPayloadEvent.Context context) {
             ServerPlayer player = context.getSender();
             if (player != null) {
                 FairPlayFairRule.LOGGER.info("Received client info from player: {}", player.getName().getString());
-                ServerValidationService.validatePlayer(player, packet.payload);
+                if (packet.decoded != null && !packet.decoded.isValid()) {
+                    ServerValidationService.rejectMalformed(player, packet.decoded.reportType(),
+                            packet.decoded.failureCode());
+                } else {
+                    ServerValidationService.validatePlayer(player, packet.payload);
+                }
             } else {
                 FairPlayFairRule.LOGGER.warn("Received ClientInfoPacket but player context is null!");
             }

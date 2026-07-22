@@ -37,8 +37,15 @@ public final class PlayerPackSessionStore {
             namesByStateToken = Map.copyOf(namesByStateToken);
             manifest = List.copyOf(manifest);
         }
-        public List<String> orderedHashes() { return orderedStateTokens; }
-        public List<String> hashes() { return orderedStateTokens; }
-        public Map<String, String> namesByHash() { return namesByStateToken; }
+        public List<String> orderedHashes() {
+            return orderedStateTokens.stream().map(ValidationResult::hashFromStateToken).toList();
+        }
+        public List<String> hashes() { return orderedHashes(); }
+        public Map<String, String> namesByHash() {
+            java.util.LinkedHashMap<String, String> names = new java.util.LinkedHashMap<>();
+            namesByStateToken.forEach((token, name) ->
+                    names.put(ValidationResult.hashFromStateToken(token), name));
+            return Map.copyOf(names);
+        }
     }
 }
