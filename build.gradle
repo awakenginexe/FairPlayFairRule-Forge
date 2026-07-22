@@ -25,6 +25,7 @@ def minecraftVersion = targetId
 def minecraftVersionRange = "[${minecraftVersion},${minecraftVersion.tokenize('.').with { "${it[0]}.${it[1]}.${(it[2] as int) + 1}" }})"
 def forgeVersion = target.forge
 def forgeMajor = forgeVersion.tokenize('.')[0]
+def serverRunDirectory = providers.gradleProperty('serverRunDir').getOrElse('run')
 
 version = project.mod_version
 group = project.mod_group_id
@@ -90,7 +91,7 @@ minecraft {
         }
 
         server {
-            workingDirectory project.file('run')
+            workingDirectory project.file(serverRunDirectory)
             property 'forge.logging.console.level', 'debug'
             args '--nogui'
             mods {
